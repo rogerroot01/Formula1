@@ -1,0 +1,1 @@
+data_split,season,round,race_date,race_name,driver_id,driver_code,driver_name,constructor_name,model,predicted_finish_position,predicted_rank_in_race,finish_position,actual_rank_in_race,actual_winner,actual_podium

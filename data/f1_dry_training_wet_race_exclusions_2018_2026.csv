@@ -1,0 +1,32 @@
+season,round,race_name,race_date,circuit_id,circuit_name,summed_rain_driver_laps,max_driver_rain_lap_rate,used_intermediate_any,used_wet_any,summed_intermediate_laps,summed_wet_laps,wet_exclusion_reason
+2018,5,Spanish Grand Prix,2018-05-13,catalunya,Circuit de Barcelona-Catalunya,866,1,FALSE,FALSE,0,0,rainfall_recorded
+2018,6,Monaco Grand Prix,2018-05-27,monaco,Circuit de Monaco,204,0.18867924528301888,FALSE,FALSE,0,0,rainfall_recorded
+2018,11,German Grand Prix,2018-07-22,hockenheimring,Hockenheimring,266,0.2537313432835821,TRUE,TRUE,32,3,rainfall_and_intermediate_or_wet_tires
+2018,21,Abu Dhabi Grand Prix,2018-11-25,yas_marina,Yas Marina Circuit,61,0.08888888888888889,FALSE,FALSE,0,0,rainfall_recorded
+2019,6,Monaco Grand Prix,2019-05-26,monaco,Circuit de Monaco,1242,0.8571428571428571,FALSE,FALSE,0,0,rainfall_recorded
+2019,11,German Grand Prix,2019-07-28,hockenheimring,Hockenheimring,1045,1,TRUE,TRUE,685,77,rainfall_and_intermediate_or_wet_tires
+2020,3,Hungarian Grand Prix,2020-07-19,hungaroring,Hungaroring,0,0,TRUE,FALSE,56,0,intermediate_or_wet_tires
+2020,11,Eifel Grand Prix,2020-10-11,nurburgring,Nürburgring,21,0.05555555555555555,FALSE,FALSE,0,0,rainfall_recorded
+2020,14,Turkish Grand Prix,2020-11-15,istanbul,Istanbul Park,0,0,TRUE,TRUE,917,160,intermediate_or_wet_tires
+2021,2,Emilia Romagna Grand Prix,2021-04-18,imola,Autodromo Enzo e Dino Ferrari,352,1,TRUE,TRUE,466,32,rainfall_and_intermediate_or_wet_tires
+2021,11,Hungarian Grand Prix,2021-08-01,hungaroring,Hungaroring,51,1,TRUE,FALSE,51,0,rainfall_and_intermediate_or_wet_tires
+2021,12,Belgian Grand Prix,2021-08-29,spa,Circuit de Spa-Francorchamps,40,0.6666666666666666,FALSE,FALSE,0,0,rainfall_recorded
+2021,15,Russian Grand Prix,2021-09-26,sochi,Sochi Autodrom,105,0.11538461538461539,TRUE,FALSE,67,0,rainfall_and_intermediate_or_wet_tires
+2021,16,Turkish Grand Prix,2021-10-10,istanbul,Istanbul Park,0,0,TRUE,FALSE,1146,0,intermediate_or_wet_tires
+2022,4,Emilia Romagna Grand Prix,2022-04-24,imola,Autodromo Enzo e Dino Ferrari,0,0,TRUE,FALSE,329,0,intermediate_or_wet_tires
+2022,7,Monaco Grand Prix,2022-05-29,monaco,Circuit de Monaco,454,0.72,TRUE,TRUE,115,283,rainfall_and_intermediate_or_wet_tires
+2022,13,Hungarian Grand Prix,2022-07-31,hungaroring,Hungaroring,399,0.3188405797101449,FALSE,FALSE,0,0,rainfall_recorded
+2022,17,Singapore Grand Prix,2022-10-02,marina_bay,Marina Bay Street Circuit,0,0,TRUE,FALSE,588,0,intermediate_or_wet_tires
+2022,18,Japanese Grand Prix,2022-10-09,suzuka,Suzuka Circuit,455,1,TRUE,TRUE,414,93,rainfall_and_intermediate_or_wet_tires
+2023,6,Monaco Grand Prix,2023-05-28,monaco,Circuit de Monaco,293,0.21052631578947367,TRUE,TRUE,399,45,rainfall_and_intermediate_or_wet_tires
+2023,12,Belgian Grand Prix,2023-07-30,spa,Circuit de Spa-Francorchamps,98,0.17391304347826086,FALSE,FALSE,0,0,rainfall_recorded
+2023,13,Dutch Grand Prix,2023-08-27,zandvoort,Circuit Park Zandvoort,308,0.5333333333333333,TRUE,TRUE,325,3,rainfall_and_intermediate_or_wet_tires
+2024,9,Canadian Grand Prix,2024-06-09,villeneuve,Circuit Gilles Villeneuve,313,0.375,TRUE,TRUE,827,19,rainfall_and_intermediate_or_wet_tires
+2024,10,Spanish Grand Prix,2024-06-23,catalunya,Circuit de Barcelona-Catalunya,20,0.015625,FALSE,FALSE,0,0,rainfall_recorded
+2024,12,British Grand Prix,2024-07-07,silverstone,Silverstone Circuit,411,0.48484848484848486,TRUE,FALSE,234,0,rainfall_and_intermediate_or_wet_tires
+2024,21,São Paulo Grand Prix,2024-11-03,interlagos,Autódromo José Carlos Pace,827,1,TRUE,TRUE,1116,18,rainfall_and_intermediate_or_wet_tires
+2025,1,Australian Grand Prix,2025-03-16,albert_park,Albert Park Grand Prix Circuit,306,0.3939393939393939,TRUE,FALSE,750,0,rainfall_and_intermediate_or_wet_tires
+2025,6,Miami Grand Prix,2025-05-04,miami,Miami International Autodrome,42,0.08333333333333333,FALSE,FALSE,0,0,rainfall_recorded
+2025,12,British Grand Prix,2025-07-06,silverstone,Silverstone Circuit,85,0.2777777777777778,TRUE,FALSE,608,0,rainfall_and_intermediate_or_wet_tires
+2025,13,Belgian Grand Prix,2025-07-27,spa,Circuit de Spa-Francorchamps,0,0,TRUE,FALSE,240,0,intermediate_or_wet_tires
+2026,5,Canadian Grand Prix,2026-05-24,villeneuve,Circuit Gilles Villeneuve,0,0,TRUE,FALSE,14,0,intermediate_or_wet_tires

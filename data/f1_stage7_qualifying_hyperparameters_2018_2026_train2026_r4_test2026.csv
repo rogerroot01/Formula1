@@ -1,0 +1,9 @@
+model,target,max_depth,eta,min_child_weight,subsample,colsample_bytree,nrounds,eval_metric,eval_value,tuned_at
+xgb_quali_constructor_track,current_quali_position,2,0.08,5,0.85,0.95,100,rmse,3.3110342200714817,2026-07-12T11:20:32Z
+xgb_quali_constructor_track,current_best_quali_delta_sec,2,0.12,5,0.85,0.85,100,rmse,0.5621090321844355,2026-07-12T11:21:42Z
+xgb_quali_no_constructor,current_quali_position,2,0.04,5,0.85,0.85,160,rmse,3.389218416342153,2026-07-12T11:22:50Z
+xgb_quali_no_constructor,current_best_quali_delta_sec,3,0.12,5,0.85,0.85,100,rmse,0.5544719356240531,2026-07-12T11:24:18Z
+xgb_quali_high_speed_specialist,current_quali_position,4,0.08,5,0.85,0.85,100,rmse,3.5508374968580285,2026-07-12T11:25:30Z
+xgb_quali_high_speed_specialist,current_best_quali_delta_sec,2,0.04,1,0.85,0.85,160,rmse,0.5841055719580717,2026-07-12T11:26:47Z
+xgb_quali_technical_specialist,current_quali_position,4,0.12,1,0.95,0.85,100,rmse,2.95781007923154,2026-07-12T11:28:02Z
+xgb_quali_technical_specialist,current_best_quali_delta_sec,3,0.12,1,0.85,0.95,100,rmse,0.4737143332228092,2026-07-12T11:29:21Z
