@@ -3442,7 +3442,7 @@
       "checksum": "3d88e0e10058100c55454a80683a252b"
     },
     "app.R": {
-      "checksum": "4a1b1a65140498610a42013e809d2776"
+      "checksum": "58af730926d0dc96fe0d37c817509ac4"
     },
     "data/f1_current_sprint_facts_2018_2026.csv": {
       "checksum": "86d7b537a17250900e485309d4028dbd"
@@ -3460,7 +3460,7 @@
       "checksum": "eddf1968dd143cc4f722faf6fcde141b"
     },
     "data/f1_prerace_grid_quali_overrides_2018_2026.csv": {
-      "checksum": "38dc8658dd9d8c3cf8637c90c4c3d8e9"
+      "checksum": "2c84c14be467dad21341c99317a20d2e"
     },
     "data/f1_schedule_2018_2026.csv": {
       "checksum": "153701e2e6fcc5f5b13c957beec23315"
@@ -3469,49 +3469,49 @@
       "checksum": "cb678eb555400aa25495f81694509ae2"
     },
     "data/f1_stage11_xgb_finish_app_predictions_2018_2026.csv": {
-      "checksum": "2645977683e92a3a97f31c7e20c68dec"
+      "checksum": "eb27f7b845c31da154687f990bf26469"
     },
     "data/f1_stage12_xgb_probability_app_predictions_2018_2026.csv": {
-      "checksum": "a00e1229995809a11267291794b7c8e7"
+      "checksum": "a5f91a2f91d1a2d2b63ff5705d69f77e"
     },
     "data/f1_stage13_xgb_points_app_predictions_2018_2026.csv": {
-      "checksum": "a43e8340b1508061124d25d3c9290f97"
+      "checksum": "b1707131bf3b44aa39e403b246216762"
     },
     "data/f1_stage17_xgb_winner_without_app_predictions_2018_2026.csv": {
-      "checksum": "e6c726cd3c6d9ea75896e9282ab33cc7"
+      "checksum": "c9e81e23c52461f696f3daf340444ac4"
     },
     "data/f1_stage18_chatter_overlay_coefficients_2018_2026.csv": {
-      "checksum": "6363bd2534ac4b87b4c2da05fb59c486"
+      "checksum": "16172fe488af7ad493a74feeb706f4c8"
     },
     "data/f1_stage18_chatter_team_features_2018_2026.csv": {
       "checksum": "780a0bf9215d243853fc8e3293852248"
     },
     "data/f1_stage18_qualifying_chatter_overlay_2018_2026.csv": {
-      "checksum": "0111901d9f7db8c208a02b4f48dafe82"
+      "checksum": "825381b54cad3825b554f1b7a21f32fa"
     },
     "data/f1_stage18_xgb_finish_chatter_overlay_2018_2026.csv": {
-      "checksum": "8b8e4589bcec033f4b614652cf7c6f9f"
+      "checksum": "55badd4bc7e88765938d9a5b14b1165a"
     },
     "data/f1_stage18_xgb_points_chatter_overlay_2018_2026.csv": {
-      "checksum": "70c91419dbb87c485b75cc7d8c4f4a1d"
+      "checksum": "50bca11de1ee26dd7e07b187e5017677"
     },
     "data/f1_stage18_xgb_probability_chatter_overlay_2018_2026.csv": {
-      "checksum": "043b5dc3540fc3e88f13d6733838f881"
+      "checksum": "0b03d80990acf9edc476d9b9283c4a27"
     },
     "data/f1_stage18_xgb_winner_without_chatter_overlay_2018_2026.csv": {
-      "checksum": "17d0b99d814c92bbe886708906a435ed"
+      "checksum": "2455349231613b7b7bacf937afb44132"
     },
     "data/f1_stage19_fastest_lap_app_predictions_2018_2026.csv": {
-      "checksum": "0729e8dee2c63bd240a111acf12ea49f"
+      "checksum": "8ba9096b754ac7f994d9cd0111e4c4a5"
     },
     "data/f1_stage5_track_profile_inventory_2018_2026.csv": {
       "checksum": "3d59b95a692891e7a55ad8a0c1b10a7f"
     },
     "data/f1_stage6_future_prerace_estimates_2018_2026.csv": {
-      "checksum": "a8bea8ff1e32575e8b0261bd505e4f2a"
+      "checksum": "33992d8f09c7dd3eba659803e8f8f816"
     },
     "data/f1_stage7_qualifying_app_predictions_2018_2026.csv": {
-      "checksum": "c5cb8744ed166f33d8c9322fa2e7fdd6"
+      "checksum": "d031c14ced553fc105f97c853ec8122b"
     },
     "data/f1_stage7_qualifying_hyperparameters_2018_2026_train2024_test2025.csv": {
       "checksum": "1da271867d703b575c97389269d5cee6"
@@ -3832,7 +3832,7 @@
       "checksum": "11bca5ab989cd41aaf3e83345f0656c5"
     },
     "data/keep these files/f1_current_driver_weekend_signals_2018_2026.csv": {
-      "checksum": "ba7c7df8dcd861e634868cdcabde8a3c"
+      "checksum": "12b78f7cb518fc29e1c34e970c87653c"
     },
     "data/keep these files/f1_current_sprint_facts_2018_2026.csv": {
       "checksum": "309e88b8ebfdce48ebe66fe75652e0d0"
@@ -3844,7 +3844,7 @@
       "checksum": "07ad072fa020d45ae5c26c05e87e2058"
     },
     "data/keep these files/f1_market_odds_grid_driver_summary_2025_2026.csv": {
-      "checksum": "e18675132c5ded238df348e25af4d946"
+      "checksum": "01e54e2f5daa97420873ceaaa0f27c13"
     },
     "data/keep these files/f1_market_odds_opening_driver_summary_2025_2026.csv": {
       "checksum": "a8787c9b31800fd4ee030b17d1f35803"
@@ -3856,7 +3856,7 @@
       "checksum": "db6225f04b4ecbc0099adb2b44aaf4a6"
     },
     "data/keep these files/f1_prerace_grid_quali_overrides_2018_2026.csv": {
-      "checksum": "ef4d6f8f7efca7dfbc860b9f6b7f0fef"
+      "checksum": "2c84c14be467dad21341c99317a20d2e"
     },
     "data/keep these files/f1_qualifying_odds_current_2025_2026.csv": {
       "checksum": "2d2f2bac201fc9e07f1a38847d6e54d8"
