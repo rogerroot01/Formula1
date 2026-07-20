@@ -8097,8 +8097,7 @@ server <- function(input, output, session) {
     flex_count <- as.integer(flex_count %||% 4)
     driver_pool <- driver_rows %>%
       filter(!driver_name %in% excluded_drivers) %>%
-      arrange(desc(fantasy_projection), desc(value_per_1k), driver_name) %>%
-      slice_head(n = 18L)
+      arrange(desc(fantasy_projection), desc(value_per_1k), driver_name)
 
     salary_break <- if (!is.null(captain_salary_break) && is.finite(captain_salary_break)) {
       as.numeric(captain_salary_break)
@@ -8118,7 +8117,7 @@ server <- function(input, output, session) {
     if (length(captain_indexes) == 0) return(tibble())
 
     constructor_pool <- if (isTRUE(include_constructor) && nrow(constructor_rows) > 0) {
-      constructor_rows %>% arrange(desc(fantasy_projection), desc(value_per_1k), constructor_name) %>% slice_head(n = 10L)
+      constructor_rows %>% arrange(desc(fantasy_projection), desc(value_per_1k), constructor_name)
     } else {
       tibble(constructor_name = "No constructor", fantasy_projection = 0, mock_salary = 0, value_per_1k = 0)
     }
