@@ -7955,10 +7955,16 @@ server <- function(input, output, session) {
         fallback_finish = if_else(!is.na(rolling_finish), rolling_finish, as.numeric(n() - fallback_rank + 1L)),
         base_projected_finish = if (isTRUE(use_rolling)) fallback_finish else coalesce(model_finish, fallback_finish),
         consensus_rank_index = pmin(n(), pmax(1L, as.integer(round(fantasy_consensus_rank)))),
-        projected_finish = if_else(
-          !is.na(fantasy_consensus_rank),
-          sort(base_projected_finish)[consensus_rank_index],
-          base_projected_finish
+        projected_finish = pmin(
+          as.numeric(n()),
+          pmax(
+            1,
+            if_else(
+              !is.na(fantasy_consensus_rank),
+              sort(base_projected_finish)[consensus_rank_index],
+              base_projected_finish
+            )
+          )
         ),
         projected_start = coalesce(display_start_position, display_quali_position, rolling_start, projected_finish),
         projected_f1_points = if (isTRUE(use_rolling)) coalesce(rolling_points, 0) else coalesce(model_points, rolling_points, 0),
