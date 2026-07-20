@@ -3814,7 +3814,16 @@ ui <- fluidPage(
                 div(class = "panel", h2("Best Mock Lineup"), tableOutput("fantasy_lineup_table"), tableOutput("fantasy_lineup_summary_table")),
                 div(class = "panel", h2("Alternate Captain Lineup"), tableOutput("fantasy_alt_lineup_table"), tableOutput("fantasy_alt_lineup_summary_table"))
               ),
-              div(class = "panel", h2("Driver Fantasy Board"), div(class = "tree-prediction-table", tableOutput("fantasy_driver_table"))),
+              div(
+                class = "panel",
+                div(
+                  style = "display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;",
+                  h2(style = "margin-bottom:0;", "Driver Fantasy Board"),
+                  downloadButton("fantasy_driver_download", "Download driver projections (CSV)")
+                ),
+                p(class = "hint", "Exports every driver, the selected model-family ranks, and each projected DraftKings scoring component. Completed races also include actual category points and projection errors."),
+                div(class = "tree-prediction-table", tableOutput("fantasy_driver_table"))
+              ),
               div(class = "panel", h2("Constructor Board"), div(class = "tree-prediction-table", tableOutput("fantasy_constructor_table")))
             )
           )
@@ -8917,6 +8926,185 @@ server <- function(input, output, session) {
         `Fastest lap DK` = format_num(dk_fastest_lap_points, 2)
       )
   }, striped = TRUE, hover = TRUE, bordered = FALSE)
+
+  fantasy_driver_download_rows <- reactive({
+    driver_rows <- fantasy_driver_projections()
+    family_rows <- if (isTRUE(input$fantasy_use_chatter)) {
+      build_chatter_adjusted_allmodel_family_ranks(input$fantasy_season, input$fantasy_round)
+    } else {
+      build_allmodel_family_consensus_ranks(input$fantasy_season, input$fantasy_round)
+    }
+
+    family_rank_lookup <- family_rows %>%
+      transmute(
+        driver_code,
+        family = recode(
+          family,
+          "Finish model" = "finish_family_rank",
+          "Probability model" = "probability_family_rank",
+          "Points model" = "points_family_rank",
+          "Routed specialist finish" = "routed_finish_rank",
+          "Routed specialist probability" = "routed_probability_rank",
+          "Routed specialist points" = "routed_points_rank",
+          .default = str_replace_all(str_to_lower(family), "[^a-z0-9]+", "_")
+        ),
+        family_rank = as.numeric(winner_family_rank)
+      ) %>%
+      distinct(driver_code, family, .keep_all = TRUE) %>%
+      pivot_wider(names_from = family, values_from = family_rank)
+
+    required_family_rank_cols <- c(
+      "finish_family_rank",
+      "probability_family_rank",
+      "points_family_rank",
+      "routed_finish_rank",
+      "routed_probability_rank",
+      "routed_points_rank"
+    )
+    for (rank_col in setdiff(required_family_rank_cols, names(family_rank_lookup))) {
+      family_rank_lookup[[rank_col]] <- NA_real_
+    }
+
+    actual_rows <- stage1 %>%
+      filter(
+        season == as.integer(input$fantasy_season),
+        round == as.integer(input$fantasy_round),
+        !is.na(finish_position)
+      ) %>%
+      transmute(
+        season,
+        round,
+        driver_code,
+        actual_start = as.numeric(grid),
+        actual_finish = as.numeric(finish_position),
+        actual_classified = classified_finish %in% TRUE,
+        actual_laps_led = coalesce(as.numeric(laps_led), 0),
+        actual_fastest_lap_rank = as.numeric(fastest_rank),
+        actual_race_laps = as.numeric(race_laps),
+        constructor_name
+      ) %>%
+      group_by(season, round, constructor_name) %>%
+      mutate(
+        actual_constructor_finish_rank = rank(actual_finish, ties.method = "first"),
+        actual_teammate_bonus = if_else(n() >= 2L & actual_constructor_finish_rank == 1L, 5, 0)
+      ) %>%
+      ungroup() %>%
+      group_by(season, round) %>%
+      mutate(
+        actual_recorded_laps_led = sum(actual_laps_led, na.rm = TRUE),
+        actual_unassigned_leader_laps = pmax(0, max(actual_race_laps, na.rm = TRUE) - actual_recorded_laps_led),
+        actual_data_quality_note = if_else(
+          actual_unassigned_leader_laps > 0,
+          paste0(actual_unassigned_leader_laps, " race lap(s) have no leader assigned in the race-results source."),
+          ""
+        )
+      ) %>%
+      ungroup() %>%
+      mutate(
+        actual_finish_points = fantasy_finish_points(actual_finish),
+        actual_place_diff = actual_start - actual_finish,
+        actual_classified_points = if_else(actual_classified, 1, 0),
+        actual_laps_led_points = actual_laps_led * 0.25,
+        actual_fastest_lap_points = if_else(actual_fastest_lap_rank == 1, 3, 0, missing = 0),
+        actual_fantasy_points = actual_finish_points +
+          actual_place_diff +
+          actual_classified_points +
+          actual_laps_led_points +
+          actual_fastest_lap_points +
+          actual_teammate_bonus
+      ) %>%
+      select(-constructor_name, -actual_constructor_finish_rank)
+
+    driver_rows %>%
+      left_join(family_rank_lookup, by = "driver_code") %>%
+      left_join(actual_rows, by = c("season", "round", "driver_code")) %>%
+      transmute(
+        season,
+        round,
+        race_name,
+        chatter_overlay = isTRUE(input$fantasy_use_chatter),
+        consensus_mode = input$allmodel_consensus_mode %||% "family",
+        include_finish_family = isTRUE(input$allmodel_use_xgb_finish),
+        include_probability_family = isTRUE(input$allmodel_use_xgb_probability),
+        include_points_family = isTRUE(input$allmodel_use_xgb_points),
+        include_routed_specialists = isTRUE(input$allmodel_use_routed_specialists),
+        consensus_families = fantasy_consensus_families,
+        finish_magnitude_source = "Selected XGB finish models; family selections determine consensus order",
+        finish_models_used = paste(selected_or_default_models(input$xgb_models, xgb_finish_default_models), collapse = " | "),
+        probability_models_used = paste(selected_or_default_models(input$xgb_prob_models, xgb_probability_default_models), collapse = " | "),
+        points_models_used = paste(selected_or_default_models(input$xgb_points_models, xgb_points_default_models), collapse = " | "),
+        fantasy_rank,
+        driver_code,
+        driver_name,
+        constructor_name,
+        consensus_rank = fantasy_consensus_rank,
+        finish_family_rank,
+        probability_family_rank,
+        points_family_rank,
+        routed_finish_rank,
+        routed_probability_rank,
+        routed_points_rank,
+        raw_model_finish = model_finish,
+        raw_model_f1_points = model_points,
+        projected_start,
+        projected_finish,
+        projected_f1_points,
+        dk_finish_points,
+        dk_place_diff,
+        dk_classified_points,
+        projected_laps_led,
+        dk_laps_led_points,
+        projected_fastest_lap_probability,
+        dk_fastest_lap_points,
+        dk_teammate_bonus,
+        dk_base_projection,
+        fantasy_projection,
+        actual_start,
+        actual_finish,
+        actual_finish_points,
+        actual_place_diff,
+        actual_classified_points,
+        actual_laps_led,
+        actual_laps_led_points,
+        actual_fastest_lap_rank,
+        actual_fastest_lap_points,
+        actual_teammate_bonus,
+        actual_fantasy_points,
+        actual_unassigned_leader_laps,
+        actual_data_quality_note,
+        finish_points_error = dk_finish_points - actual_finish_points,
+        place_diff_error = dk_place_diff - actual_place_diff,
+        classified_points_error = dk_classified_points - actual_classified_points,
+        laps_led_points_error = dk_laps_led_points - actual_laps_led_points,
+        fastest_lap_points_error = dk_fastest_lap_points - actual_fastest_lap_points,
+        teammate_bonus_error = dk_teammate_bonus - actual_teammate_bonus,
+        total_projection_error = fantasy_projection - actual_fantasy_points,
+        driver_salary = mock_salary,
+        captain_salary = mock_salary * 1.5,
+        salary_source,
+        value_per_1k,
+        projection_source
+      ) %>%
+      arrange(fantasy_rank, driver_name)
+  })
+
+  output$fantasy_driver_download <- downloadHandler(
+    filename = function() {
+      rows <- fantasy_driver_projections()
+      race_slug <- rows %>%
+        distinct(race_name) %>%
+        slice(1) %>%
+        pull(race_name) %>%
+        str_to_lower() %>%
+        str_replace_all("[^a-z0-9]+", "_") %>%
+        str_replace_all("^_|_$", "")
+      overlay_slug <- if (isTRUE(input$fantasy_use_chatter)) "chatter" else "no_chatter"
+      paste0("f1_fantasy_driver_projections_", input$fantasy_season, "_round_", input$fantasy_round, "_", race_slug, "_", overlay_slug, ".csv")
+    },
+    content = function(file) {
+      write_csv(fantasy_driver_download_rows(), file, na = "")
+    }
+  )
 
   output$fantasy_constructor_table <- renderTable({
     fantasy_constructor_projections() %>%
