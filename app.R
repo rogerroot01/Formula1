@@ -3799,21 +3799,24 @@ ui <- fluidPage(
                 selected = if (any(rf_race_choices$season == 2026L)) 2026L else if (nrow(rf_race_choices) > 0) max(rf_race_choices$season) else NULL
               ),
               uiOutput("fantasy_race_selector"),
-              checkboxInput("fantasy_use_chatter", "Add chatter overlay", value = FALSE),
-              checkboxInput("fantasy_captain_exclusive", "Keep captains exclusive", value = FALSE),
-              checkboxInput("fantasy_disjoint_drivers", "No shared drivers", value = FALSE),
-              p(class = "hint", "Captain-exclusive keeps each captain out of the other lineup. No shared drivers makes the two driver groups fully disjoint."),
+              checkboxInput("fantasy_use_chatter", "Add chatter overlay", value = TRUE),
+              p(class = "hint", "Chatter-adjusted qualifying, finish, points, and consensus signals feed the fantasy projections and portfolio lineups."),
               numericInput("fantasy_salary_cap", "Salary cap", value = 50000, min = 10000, step = 500),
               numericInput("fantasy_flex_count", "Flex drivers", value = 4, min = 1, max = 6, step = 1)
             ),
             div(
               class = "tree-tab-content",
               uiOutput("fantasy_header"),
-              div(
-                style = "display:grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 16px;",
-                div(class = "panel", h2("Best Mock Lineup"), tableOutput("fantasy_lineup_table"), tableOutput("fantasy_lineup_summary_table")),
-                div(class = "panel", h2("Alternate Captain Lineup"), tableOutput("fantasy_alt_lineup_table"), tableOutput("fantasy_alt_lineup_summary_table"))
-              ),
+                div(class = "panel", h2("Best Single-Entry Lineup"), tableOutput("fantasy_single_lineup_table"), tableOutput("fantasy_single_lineup_summary")),
+                div(class = "panel", h2("Best Three-Entry-Max Portfolio"), p(class = "hint", "These three cards are deliberately different race scripts, not cosmetic one-driver swaps."),
+                    div(style = "display:grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap:16px;",
+                        div(class = "panel", h3("Lineup A — Favorite driver / teammate fade"), tableOutput("fantasy_three_a_table"), tableOutput("fantasy_three_a_summary")),
+                        div(class = "panel", h3("Lineup B — Rival / leverage constructor"), tableOutput("fantasy_three_b_table"), tableOutput("fantasy_three_b_summary")),
+                        div(class = "panel", h3("Lineup C — Chaos / place differential"), tableOutput("fantasy_three_c_table"), tableOutput("fantasy_three_c_summary"))
+                    )
+                ),
+                div(class = "panel", h2("Five Strategy Philosophies"), tableOutput("fantasy_strategy_table")),
+                div(class = "panel", h2("Contest Portfolio Summary"), tableOutput("fantasy_portfolio_summary_table")),
               div(
                 class = "panel",
                 div(
@@ -8841,6 +8844,67 @@ server <- function(input, output, session) {
       salary_break
     )
   })
+
+  fantasy_portfolio_lineups <- reactive({
+    primary <- fantasy_best_lineup()
+    drivers <- fantasy_driver_projections()
+    constructors <- fantasy_constructor_projections()
+    if (nrow(primary) == 0 || nrow(drivers) == 0) return(tibble())
+    primary_captain <- primary %>% filter(Slot == "CPT") %>% pull(Name) %>% .[1]
+    primary_constructor <- primary %>% filter(Slot == "CON") %>% pull(Name) %>% .[1]
+    build <- function(label, captain_preference = "any", excluded_captains = character(), excluded_drivers = character(), salary_break = NULL) {
+      x <- optimize_fantasy_lineup(
+        drivers, constructors, input$fantasy_salary_cap, input$fantasy_flex_count, TRUE,
+        captain_preference = captain_preference,
+        excluded_captains = excluded_captains,
+        excluded_drivers = excluded_drivers,
+        captain_salary_break = salary_break
+      )
+      if (nrow(x) == 0) return(tibble())
+      x %>% mutate(Lineup = label, .before = 1)
+    }
+    primary_drivers <- primary %>% filter(Slot %in% c("CPT", "DRV")) %>% pull(Name) %>% unique()
+    salary_break <- as.numeric(quantile(drivers$mock_salary, probs = 0.75, na.rm = TRUE, type = 1))
+    bind_rows(
+      build("A — Best single-entry", "any"),
+      build("B — Favorite driver / teammate fade", "high", excluded_captains = primary_captain),
+      build("C — Rival / leverage constructor", "low", excluded_captains = c(primary_captain, primary_drivers[2])),
+      build("D — Chaos / place differential", "low", excluded_captains = c(primary_captain), excluded_drivers = primary_drivers[2]),
+      build("E — Value captain unlock", "low", excluded_captains = c(primary_captain), salary_break = salary_break)
+    )
+  })
+
+  output$fantasy_portfolio_table <- renderTable({
+    rows <- fantasy_portfolio_lineups()
+    validate(need(nrow(rows) > 0, "No portfolio lineups fit under the current cap and slot settings."))
+    rows %>% transmute(
+      Lineup, Slot, Name, Constructor,
+      Salary = paste0("$", format(round(Salary, 0), big.mark = ",")),
+      Projection = format_num(Projection, 2),
+      `Value / $1k` = format_num(Value, 2)
+    )
+  }, striped = TRUE, hover = TRUE, bordered = FALSE)
+
+  output$fantasy_portfolio_summary_table <- renderTable({
+    rows <- fantasy_portfolio_lineups()
+    validate(need(nrow(rows) > 0, "No portfolio summaries available."))
+    rows %>% group_by(Lineup) %>% summarise(
+      `Total salary` = paste0("$", format(round(first(total_salary), 0), big.mark = ",")),
+      `Salary left` = paste0("$", format(round(as.numeric(input$fantasy_salary_cap) - first(total_salary), 0), big.mark = ",")),
+      `Projected DK points` = format_num(first(total_projection), 2),
+      Captain = first(Name[Slot == "CPT"]),
+      Constructor = first(Name[Slot == "CON"]),
+      .groups = "drop"
+    )
+  }, striped = TRUE, hover = TRUE, bordered = FALSE)
+
+  output$fantasy_strategy_table <- renderTable({
+    tibble(
+      Strategy = c("Favorite constructor dominates", "Favorite driver wins / teammate struggles", "Rival constructor leverage", "Chaos, attrition, or place differential", "Value captain unlocks premium pieces"),
+      `What it protects against` = c("Both cars score", "Winner scores while teammate fails", "Favorite team underperforms", "Penalties, safety cars, or DNFs", "Premium captain plus elite flex combination"),
+      `Portfolio expression` = c("B — team-dominance variant", "A/B — winner without constructor dependency", "C — leverage variant", "D — recovery variant", "E — salary-architecture variant")
+    )
+  }, striped = TRUE, hover = TRUE, bordered = FALSE)
 
   output$fantasy_header <- renderUI({
     rows <- fantasy_driver_projections()
