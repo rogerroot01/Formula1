@@ -9573,9 +9573,96 @@ server <- function(input, output, session) {
       others <- setdiff(seq_len(nrow(selected)), i)
       mean(vapply(others, function(j) length(intersect(selected$Roster[[i]], selected$Roster[[j]])), numeric(1)))
     }, numeric(1))
-    selected <- selected %>%
-      arrange(desc(RobustProjection), desc(MedianProjection), desc(CeilingProjection), Source, ScenarioKey)
-    ordered_ids <- selected$CandidateID
+    subset_score <- function(indexes) {
+      x <- selected[indexes, ]
+      pairs <- if (length(indexes) >= 2L) utils::combn(seq_along(indexes), 2L) else matrix(integer(), nrow = 2L)
+      shared <- if (ncol(pairs) > 0L) {
+        apply(pairs, 2, function(pair) length(intersect(x$Roster[[pair[1]]], x$Roster[[pair[2]]])))
+      } else {
+        0
+      }
+      driver_counts <- table(unlist(x$Drivers, use.names = FALSE))
+      constructor_counts <- table(x$Constructor)
+      sum(x$RobustProjection) +
+        0.10 * sum(x$CeilingProjection - x$RobustProjection) +
+        4 * n_distinct(x$Captain) +
+        8 * n_distinct(x$Constructor) -
+        2.5 * sum(shared) -
+        8 * sum(pmax(as.numeric(driver_counts) - 3, 0)^2) -
+        10 * sum(pmax(as.numeric(constructor_counts) - 2, 0)^2)
+    }
+    choose_nested_subset <- function(fixed, target_size, rule_sets) {
+      additions_needed <- target_size - length(fixed)
+      available <- setdiff(seq_len(nrow(selected)), fixed)
+      additions <- utils::combn(available, additions_needed)
+      if (is.null(dim(additions))) additions <- matrix(additions, nrow = additions_needed)
+      for (rules in rule_sets) {
+        best_indexes <- integer()
+        best_subset_score <- -Inf
+        for (column in seq_len(ncol(additions))) {
+          indexes <- c(fixed, additions[, column])
+          x <- selected[indexes, ]
+          driver_counts <- table(unlist(x$Drivers, use.names = FALSE))
+          constructor_counts <- table(x$Constructor)
+          if (n_distinct(x$Constructor) < rules$min_constructors) next
+          if (n_distinct(x$Captain) < rules$min_captains) next
+          if (max(driver_counts) > rules$max_driver) next
+          if (max(constructor_counts) > rules$max_constructor) next
+          candidate_score <- subset_score(indexes)
+          if (candidate_score > best_subset_score) {
+            best_indexes <- indexes
+            best_subset_score <- candidate_score
+          }
+        }
+        if (length(best_indexes) == target_size) return(best_indexes)
+      }
+      stop("No nested fantasy subset satisfies even the relaxed diversity safeguards.", call. = FALSE)
+    }
+    single_entry_score <- selected$RobustProjection +
+      0.10 * (selected$CeilingProjection - selected$RobustProjection) -
+      2 * selected$AverageSharedSelections
+    best_one <- which.max(single_entry_score)
+    best_three <- choose_nested_subset(
+      best_one,
+      3L,
+      list(
+        list(min_constructors = 3L, min_captains = 3L, max_driver = 2L, max_constructor = 1L),
+        list(min_constructors = 3L, min_captains = 3L, max_driver = 3L, max_constructor = 1L),
+        list(min_constructors = 2L, min_captains = 2L, max_driver = 3L, max_constructor = 2L)
+      )
+    )
+    best_five <- choose_nested_subset(
+      best_three,
+      5L,
+      list(
+        list(min_constructors = 3L, min_captains = 4L, max_driver = 4L, max_constructor = 3L),
+        list(min_constructors = 3L, min_captains = 3L, max_driver = 4L, max_constructor = 3L),
+        list(min_constructors = 2L, min_captains = 3L, max_driver = 4L, max_constructor = 4L)
+      )
+    )
+    order_additions <- function(fixed, additions) {
+      ordered <- integer()
+      while (length(additions) > 0L) {
+        base <- c(fixed, ordered)
+        incremental_scores <- vapply(additions, function(index) {
+          shared_with_base <- if (length(base) == 0L) 0 else {
+            sum(vapply(base, function(other) length(intersect(selected$Roster[[index]], selected$Roster[[other]])), numeric(1)))
+          }
+          new_captain <- as.numeric(!selected$Captain[[index]] %in% selected$Captain[base])
+          new_constructor <- as.numeric(!selected$Constructor[[index]] %in% selected$Constructor[base])
+          selected$RobustProjection[[index]] - 3 * shared_with_base + 5 * new_captain + 10 * new_constructor
+        }, numeric(1))
+        next_index <- additions[[which.max(incremental_scores)]]
+        ordered <- c(ordered, next_index)
+        additions <- setdiff(additions, next_index)
+      }
+      ordered
+    }
+    best_three_additions <- order_additions(best_one, setdiff(best_three, best_one))
+    best_five_additions <- order_additions(best_three, setdiff(best_five, best_three))
+    full_eight_additions <- order_additions(best_five, setdiff(seq_len(nrow(selected)), best_five))
+    ordered_indexes <- c(best_one, best_three_additions, best_five_additions, full_eight_additions)
+    ordered_ids <- selected$CandidateID[ordered_indexes]
     use_map <- tibble(
       CandidateID = ordered_ids,
       UseOrder = seq_along(ordered_ids),
@@ -9594,9 +9681,9 @@ server <- function(input, output, session) {
           TRUE ~ "Full eight-lineup portfolio"
         ),
         `Portfolio role` = case_when(
-          UseOrder == 1L ~ "Highest robust projection",
-          UseOrder <= 3L ~ "Top-three quality anchor",
-          UseOrder <= 5L ~ "Five-lineup quality diversifier",
+          UseOrder == 1L ~ "Single-entry quality anchor",
+          UseOrder <= 3L ~ "Best-three scenario diversifier",
+          UseOrder <= 5L ~ "Best-five exposure diversifier",
           TRUE ~ "Full-portfolio scenario expansion"
         )
       )
