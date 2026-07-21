@@ -2795,12 +2795,22 @@ ui <- fluidPage(
       (function () {
         var busyTimer = null;
         var busyEnabled = false;
+        function fantasyTabIsActive() {
+          var tabLinks = document.querySelectorAll('#main_tabs a[data-toggle=tab]');
+          var fantasyLink = Array.prototype.slice.call(tabLinks).find(function (link) {
+            return link.textContent.trim() === 'Fantasy Lineup';
+          });
+          return Boolean(fantasyLink && fantasyLink.parentElement && fantasyLink.parentElement.classList.contains('active'));
+        }
         function showBusy() {
-          if (!busyEnabled) return;
+          if (!busyEnabled || !fantasyTabIsActive()) {
+            hideBusy();
+            return;
+          }
           window.clearTimeout(busyTimer);
           busyTimer = window.setTimeout(function () {
             var overlay = document.getElementById('app-busy-overlay');
-            if (overlay) overlay.classList.add('is-active');
+            if (overlay && fantasyTabIsActive()) overlay.classList.add('is-active');
           }, 180);
         }
         function hideBusy() {
@@ -2813,7 +2823,14 @@ ui <- fluidPage(
           busyEnabled = true;
         };
         document.addEventListener('DOMContentLoaded', function () {
-          if (window.jQuery) window.jQuery(document).on('shiny:busy', showBusy).on('shiny:idle', hideBusy);
+          if (window.jQuery) {
+            window.jQuery(document)
+              .on('shiny:busy', showBusy)
+              .on('shiny:idle', hideBusy)
+              .on('shown.bs.tab', '#main_tabs a[data-toggle=tab]', function () {
+                if (!fantasyTabIsActive()) hideBusy();
+              });
+          }
         });
       })();
     ")),
