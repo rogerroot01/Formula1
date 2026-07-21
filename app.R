@@ -2782,6 +2782,35 @@ ui <- fluidPage(
     tags$link(rel = "icon", type = "image/x-icon", href = "favicon.ico"),
     tags$link(rel = "icon", type = "image/png", href = "f1-logo.png"),
     tags$link(rel = "apple-touch-icon", href = "apple-touch-icon.png"),
+    tags$style(HTML("
+      #app-busy-overlay { position: fixed; inset: 0; z-index: 99999; display: none; align-items: center; justify-content: center; background: rgba(8, 11, 17, 0.68); backdrop-filter: blur(2px); }
+      #app-busy-overlay.is-active { display: flex; }
+      .app-busy-card { min-width: 240px; padding: 24px 30px; border: 1px solid rgba(255,255,255,.18); border-radius: 14px; background: #151a22; color: #edf2f8; text-align: center; box-shadow: 0 18px 50px rgba(0,0,0,.45); }
+      .app-busy-hourglass { display: block; margin-bottom: 8px; font-size: 34px; animation: busy-pulse 1s ease-in-out infinite alternate; }
+      .app-busy-label { font-size: 16px; font-weight: 700; }
+      .app-busy-detail { margin-top: 5px; color: #aeb8c7; font-size: 13px; }
+      @keyframes busy-pulse { from { opacity: .55; transform: scale(.96); } to { opacity: 1; transform: scale(1.04); } }
+    ")),
+    tags$script(HTML("
+      (function () {
+        var busyTimer = null;
+        function showBusy() {
+          window.clearTimeout(busyTimer);
+          busyTimer = window.setTimeout(function () {
+            var overlay = document.getElementById('app-busy-overlay');
+            if (overlay) overlay.classList.add('is-active');
+          }, 180);
+        }
+        function hideBusy() {
+          window.clearTimeout(busyTimer);
+          var overlay = document.getElementById('app-busy-overlay');
+          if (overlay) overlay.classList.remove('is-active');
+        }
+        document.addEventListener('DOMContentLoaded', function () {
+          if (window.jQuery) window.jQuery(document).on('shiny:busy', showBusy).on('shiny:idle', hideBusy);
+        });
+      })();
+    ")),
     tags$script(HTML("
       document.addEventListener('DOMContentLoaded', function () {
         var enterButton = document.getElementById('enter-dashboard');
@@ -2873,6 +2902,17 @@ ui <- fluidPage(
         }
       });
     "))
+  ),
+  div(
+    id = "app-busy-overlay",
+    role = "status",
+    `aria-live` = "polite",
+    div(
+      class = "app-busy-card",
+      span(class = "app-busy-hourglass", "⌛"),
+      div(class = "app-busy-label", "Generating fantasy lineups"),
+      div(class = "app-busy-detail", "Please wait while projections and portfolio safeguards are applied.")
+    )
   ),
   div(
     id = "splash-screen",
@@ -3800,7 +3840,7 @@ ui <- fluidPage(
               ),
               uiOutput("fantasy_race_selector"),
               checkboxInput("fantasy_use_chatter", "Add chatter overlay", value = TRUE),
-              p(class = "hint", "Chatter-adjusted qualifying, finish, points, and consensus signals feed the fantasy projections and portfolio lineups."),
+              p(class = "hint", "This switch controls the primary A–H portfolio and download. Turn it off for a genuinely separate baseline portfolio."),
               numericInput("fantasy_salary_cap", "Salary cap", value = 50000, min = 10000, step = 500),
               numericInput("fantasy_flex_count", "Flex drivers", value = 4, min = 1, max = 6, step = 1),
               numericInput("fantasy_driver_exposure", "Max driver exposure (%)", value = 75, min = 25, max = 100, step = 5),
@@ -3808,21 +3848,25 @@ ui <- fluidPage(
               numericInput("fantasy_min_major_changes", "Minimum major changes", value = 2, min = 2, max = 4, step = 1),
               numericInput("fantasy_chatter_strength", "Chatter strength (%)", value = 50, min = 0, max = 100, step = 10),
               numericInput("fantasy_combined_chatter_count", "Combined portfolio: chatter lineups", value = 5, min = 1, max = 7, step = 1),
+              checkboxInput("fantasy_enable_mixed", "Show optional mixed portfolio", value = FALSE),
               p(class = "hint", "Every lineup must replace at least one driver, differ in at least two major ways, and share no more than four of six roster selections. Chatter is centered and bounded before it nudges projections.")
             ),
             div(
               class = "tree-tab-content",
               uiOutput("fantasy_header"),
-                div(
-                  class = "panel",
+                conditionalPanel(
+                  condition = "input.fantasy_enable_mixed === true",
                   div(
-                    style = "display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;",
-                    h2(style = "margin-bottom:0;", "Recommended Combined Portfolio"),
-                    downloadButton("fantasy_combined_download", "Download recommended 8 (CSV)")
-                  ),
-                  p(class = "hint", "Generates eight chatter and eight baseline candidates internally, then selects one final eight-entry portfolio. Default mix: five bounded-chatter and three baseline lineups."),
-                  tableOutput("fantasy_combined_summary_table"),
-                  tableOutput("fantasy_combined_table")
+                    class = "panel",
+                    div(
+                      style = "display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;",
+                      h2(style = "margin-bottom:0;", "Optional Mixed Portfolio"),
+                      downloadButton("fantasy_combined_download", "Download mixed 8 (CSV)")
+                    ),
+                    p(class = "hint", "Advanced option: selects from the two separate A–H portfolios. It always uses both projection modes, so the chatter switch does not change this optional table."),
+                    tableOutput("fantasy_combined_summary_table"),
+                    tableOutput("fantasy_combined_table")
+                  )
                 ),
                 div(class = "panel", h2("Highest-Projected Lineup"), tableOutput("fantasy_single_lineup_table"), tableOutput("fantasy_single_lineup_summary")),
                 div(class = "panel", h2("Best Three-Entry-Max Portfolio"), p(class = "hint", "These three cards are deliberately different race scripts, not cosmetic one-driver swaps."),
@@ -3832,7 +3876,7 @@ ui <- fluidPage(
                         div(class = "panel", h3("Lineup D — Chaos / place differential"), tableOutput("fantasy_three_c_table"), tableOutput("fantasy_three_c_summary"))
                     )
                 ),
-                div(class = "panel", h2("Contest Portfolio Summary"), tableOutput("fantasy_portfolio_summary_table")),
+                div(class = "panel", h2("Contest Portfolio Summary"), uiOutput("fantasy_portfolio_mode_note"), tableOutput("fantasy_portfolio_summary_table")),
                 div(class = "panel", h2("Portfolio Diversification Audit"), p(class = "hint", "Checks exact-lineup uniqueness, driver-pool overlap, and constructor concentration after all safeguards are applied."), tableOutput("fantasy_portfolio_audit_table")),
                 div(class = "panel", h2("Portfolio Exposure"), p(class = "hint", "Driver, captain, and constructor usage across the generated portfolio."), tableOutput("fantasy_portfolio_exposure_table")),
                 div(class = "panel", h2("Pairwise Lineup Overlap"), p(class = "hint", "No pair may share more than four of six selections: five drivers plus one constructor."), tableOutput("fantasy_portfolio_overlap_table")),
@@ -9029,7 +9073,7 @@ server <- function(input, output, session) {
     )
   })
 
-  fantasy_combined_candidates <- reactive({
+  fantasy_combined_candidates_experimental <- reactive({
     req(input$fantasy_season, input$fantasy_round)
     chatter_drivers <- fantasy_mode_driver_projections(TRUE)
     baseline_drivers <- fantasy_mode_driver_projections(FALSE)
@@ -9174,8 +9218,8 @@ server <- function(input, output, session) {
     evaluated
   })
 
-  fantasy_combined_portfolio <- reactive({
-    candidates <- fantasy_combined_candidates()
+  fantasy_combined_portfolio_experimental <- reactive({
+    candidates <- fantasy_combined_candidates_experimental()
     validate(need(nrow(candidates) > 0, "No combined-portfolio candidates are available."))
     coverage_drivers <- str_split(first(candidates$CoverageDrivers), fixed("|"))[[1]]
     coverage_constructors <- str_split(first(candidates$CoverageConstructors), fixed("|"))[[1]]
@@ -9309,6 +9353,107 @@ server <- function(input, output, session) {
       arrange(as.integer(str_remove(`Combined lineup`, "Entry ")), factor(Slot, levels = c("CPT", "DRV", "CON")))
   })
 
+  fantasy_combined_candidates <- reactive({
+    req(input$fantasy_season, input$fantasy_round)
+    chatter_drivers <- fantasy_mode_driver_projections(TRUE)
+    baseline_drivers <- fantasy_mode_driver_projections(FALSE)
+    validate(need(nrow(chatter_drivers) > 0 && nrow(baseline_drivers) > 0, "Both projection modes are required for the optional mixed portfolio."))
+    chatter_constructors <- fantasy_constructor_rows(chatter_drivers)
+    baseline_constructors <- fantasy_constructor_rows(baseline_drivers)
+    candidates <- bind_rows(
+      generate_fantasy_portfolio(chatter_drivers, chatter_constructors, "Chatter"),
+      generate_fantasy_portfolio(baseline_drivers, baseline_constructors, "Baseline")
+    ) %>% mutate(CandidateID = paste(Source, Lineup, sep = "::"), .before = 1)
+    projection_lookup <- function(driver_rows, constructor_rows, value_name) {
+      bind_rows(
+        driver_rows %>% transmute(AssetType = "Driver", Name = driver_name, Evaluation = fantasy_projection),
+        constructor_rows %>% transmute(AssetType = "Constructor", Name = constructor_name, Evaluation = fantasy_projection)
+      ) %>% rename(!!value_name := Evaluation)
+    }
+    candidates %>%
+      mutate(AssetType = if_else(Slot == "CON", "Constructor", "Driver")) %>%
+      left_join(projection_lookup(chatter_drivers, chatter_constructors, "ChatterEvaluation"), by = c("AssetType", "Name")) %>%
+      left_join(projection_lookup(baseline_drivers, baseline_constructors, "BaselineEvaluation"), by = c("AssetType", "Name")) %>%
+      mutate(
+        ChatterEvaluation = ChatterEvaluation * if_else(Slot == "CPT", 1.5, 1),
+        BaselineEvaluation = BaselineEvaluation * if_else(Slot == "CPT", 1.5, 1)
+      ) %>%
+      group_by(CandidateID) %>%
+      mutate(
+        `Chatter portfolio projection` = sum(ChatterEvaluation, na.rm = TRUE),
+        `Baseline portfolio projection` = sum(BaselineEvaluation, na.rm = TRUE),
+        `Median model projection` = (`Chatter portfolio projection` + `Baseline portfolio projection`) / 2,
+        `Model projection spread` = abs(`Chatter portfolio projection` - `Baseline portfolio projection`),
+        `Robust projection` = `Median model projection` - 0.25 * `Model projection spread`,
+        `Model ceiling projection` = pmax(`Chatter portfolio projection`, `Baseline portfolio projection`)
+      ) %>%
+      ungroup() %>%
+      select(-AssetType, -ChatterEvaluation, -BaselineEvaluation)
+  })
+
+  fantasy_combined_portfolio <- reactive({
+    candidates <- fantasy_combined_candidates()
+    groups <- split(candidates, candidates$CandidateID)
+    meta <- bind_rows(lapply(names(groups), function(id) {
+      x <- groups[[id]]
+      tibble(
+        CandidateID = id,
+        Source = first(x$Source),
+        Candidate = first(x$Lineup),
+        Scenario = first(x$Scenario),
+        RobustProjection = first(x$`Robust projection`),
+        MedianProjection = first(x$`Median model projection`),
+        CeilingProjection = first(x$`Model ceiling projection`),
+        Captain = x$Name[x$Slot == "CPT"][1],
+        Constructor = x$Name[x$Slot == "CON"][1],
+        Drivers = list(unique(x$Name[x$Slot %in% c("CPT", "DRV")])),
+        Roster = list(c(unique(x$Name[x$Slot %in% c("CPT", "DRV")]), x$Name[x$Slot == "CON"][1]))
+      )
+    }))
+    validate(need(nrow(meta) >= 8L, "Fewer than eight mixed-portfolio candidates are available."))
+    target_chatter <- as.integer(pmin(7, pmax(1, input$fantasy_combined_chatter_count %||% 5L)))
+    max_driver_entries <- max(1L, floor(8L * pmin(100, pmax(25, as.numeric(input$fantasy_driver_exposure %||% 75))) / 100))
+    max_constructor_entries <- max(1L, floor(8L * pmin(100, pmax(10, as.numeric(input$fantasy_constructor_exposure %||% 50))) / 100))
+    combinations <- utils::combn(seq_len(nrow(meta)), 8L)
+    best <- integer()
+    best_score <- -Inf
+    for (column in seq_len(ncol(combinations))) {
+      indexes <- combinations[, column]
+      selected <- meta[indexes, ]
+      if (sum(selected$Source == "Chatter") != target_chatter) next
+      if (max(table(unlist(selected$Drivers, use.names = FALSE))) > max_driver_entries) next
+      if (max(table(selected$Constructor)) > max_constructor_entries) next
+      pairs <- utils::combn(seq_along(indexes), 2L)
+      shared <- apply(pairs, 2, function(pair) length(intersect(selected$Roster[[pair[1]]], selected$Roster[[pair[2]]])))
+      if (any(shared > 4L)) next
+      score <- sum(selected$RobustProjection) +
+        2 * n_distinct(selected$Scenario) +
+        1.5 * n_distinct(selected$Captain) +
+        n_distinct(selected$Constructor) -
+        0.5 * sum(shared)
+      if (score > best_score) {
+        best <- indexes
+        best_score <- score
+      }
+    }
+    validate(need(length(best) == 8L, "No optional mixed portfolio satisfies the current safeguards."))
+    selected <- meta[best, ]
+    selected$AverageSharedSelections <- vapply(seq_len(nrow(selected)), function(i) {
+      others <- setdiff(seq_len(nrow(selected)), i)
+      mean(vapply(others, function(j) length(intersect(selected$Roster[[i]], selected$Roster[[j]])), numeric(1)))
+    }, numeric(1))
+    selected <- selected %>%
+      arrange(desc(RobustProjection), desc(CeilingProjection), Source, Candidate) %>%
+      mutate(
+        `Combined lineup` = paste0("Entry ", row_number()),
+        `Portfolio role` = if_else(Source == "Chatter", "Chatter candidate", "Baseline diversifier"),
+        SelectionScore = best_score
+      )
+    candidates %>%
+      inner_join(selected %>% select(CandidateID, `Combined lineup`, Candidate, `Portfolio role`, AverageSharedSelections, SelectionScore), by = "CandidateID") %>%
+      arrange(as.integer(str_remove(`Combined lineup`, "Entry ")), factor(Slot, levels = c("CPT", "DRV", "CON")))
+  })
+
   fantasy_portfolio_card <- function(label) {
     fantasy_portfolio_lineups() %>% filter(Lineup == label)
   }
@@ -9379,11 +9524,16 @@ server <- function(input, output, session) {
   output$fantasy_three_c_table <- renderTable(render_fantasy_card("D — Chaos / place differential"), striped = TRUE, hover = TRUE, bordered = FALSE)
   output$fantasy_three_c_summary <- renderTable(render_fantasy_card_summary("D — Chaos / place differential"), striped = TRUE, hover = TRUE, bordered = FALSE)
 
+  output$fantasy_portfolio_mode_note <- renderUI({
+    mode <- if (isTRUE(input$fantasy_use_chatter)) "Chatter" else "Baseline (no chatter)"
+    p(class = "hint", paste0("Primary portfolio mode: ", mode, ". The download below contains only this mode."))
+  })
+
   output$fantasy_portfolio_table <- renderTable({
     rows <- fantasy_portfolio_lineups()
     validate(need(nrow(rows) > 0, "No portfolio lineups fit under the current cap and slot settings."))
     rows %>% transmute(
-      Lineup, Slot, Name, Constructor,
+      Mode = Source, Lineup, Slot, Name, Constructor,
       Salary = paste0("$", format(round(Salary, 0), big.mark = ",")),
       Projection = format_num(Projection, 2),
       `Value / $1k` = format_num(Value, 2)
@@ -9394,6 +9544,7 @@ server <- function(input, output, session) {
     rows <- fantasy_portfolio_lineups()
     validate(need(nrow(rows) > 0, "No portfolio summaries available."))
     rows %>% group_by(Lineup) %>% summarise(
+      Mode = first(Source),
       `Total salary` = paste0("$", format(round(first(total_salary), 0), big.mark = ",")),
       `Salary left` = paste0("$", format(round(as.numeric(input$fantasy_salary_cap) - first(total_salary), 0), big.mark = ",")),
       `Projected DK points` = format_num(first(total_projection), 2),
@@ -9499,7 +9650,10 @@ server <- function(input, output, session) {
   }, striped = TRUE, hover = TRUE, bordered = FALSE)
 
   output$fantasy_portfolio_download <- downloadHandler(
-    filename = function() paste0("f1_fantasy_rosters_", input$fantasy_season, "_R", input$fantasy_round, ".csv"),
+    filename = function() {
+      mode <- if (isTRUE(input$fantasy_use_chatter)) "chatter" else "baseline"
+      paste0("f1_fantasy_rosters_", input$fantasy_season, "_R", input$fantasy_round, "_", mode, ".csv")
+    },
     content = function(file) {
       rows <- fantasy_portfolio_lineups()
       readr::write_csv(rows, file, na = "")
