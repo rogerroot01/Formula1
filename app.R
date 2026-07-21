@@ -3880,10 +3880,10 @@ ui <- fluidPage(
                   class = "panel",
                   div(
                     style = "display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;",
-                    h2(style = "margin-bottom:0;", "Recommended Core Portfolio + Optional Expansion"),
-                    downloadButton("fantasy_combined_download", "Download recommended portfolio (CSV)")
+                    h2(style = "margin-bottom:0;", "Best 1 / Best 3 / Best 5 / Full 8"),
+                    downloadButton("fantasy_combined_download", "Download all eight (CSV)")
                   ),
-                  p(class = "hint", "Entries 1–6 form the recommended core; Entries 7–8 are optional expansion choices. Entry 1 is single-entry only, Entries 2–4 are three-max only, and Entries 5–8 are the multi-entry insurance pool. Every roster is selected intact from the 16 candidates."),
+                  p(class = "hint", "Use Entry 1 for single-entry, Entries 1–3 for a three-lineup set, Entries 1–5 for a five-lineup set, or all eight for the complete portfolio. Entries are ordered by robust projection after portfolio safeguards. Fantasy uses a locked model recipe, so changes on the Model Consensus tab cannot silently replace these rosters."),
                   tableOutput("fantasy_combined_summary_table"),
                   tableOutput("fantasy_combined_table")
                 ),
@@ -6387,10 +6387,21 @@ server <- function(input, output, session) {
     req(input$chatter_season, input$chatter_round)
     chatter_winner_without_overlay %>% filter(season == as.integer(input$chatter_season), round == as.integer(input$chatter_round))
   })
-  build_chatter_adjusted_allmodel_family_ranks <- function(season_value, round_value = NULL, chatter_weight = 1, bound_chatter = FALSE) {
+  consensus_selection_value <- function(selection, name, fallback) {
+    if (!is.null(selection) && !is.null(selection[[name]])) selection[[name]] else fallback
+  }
+
+  build_chatter_adjusted_allmodel_family_ranks <- function(season_value, round_value = NULL, chatter_weight = 1, bound_chatter = FALSE, selection = NULL) {
     family_rows <- list()
     season_value <- as.integer(season_value)
-    consensus_mode <- input$allmodel_consensus_mode %||% "family"
+    consensus_mode <- consensus_selection_value(selection, "consensus_mode", input$allmodel_consensus_mode %||% "family")
+    use_xgb_finish <- isTRUE(consensus_selection_value(selection, "use_xgb_finish", input$allmodel_use_xgb_finish))
+    use_xgb_probability <- isTRUE(consensus_selection_value(selection, "use_xgb_probability", input$allmodel_use_xgb_probability))
+    use_xgb_points <- isTRUE(consensus_selection_value(selection, "use_xgb_points", input$allmodel_use_xgb_points))
+    use_routed_specialists <- isTRUE(consensus_selection_value(selection, "use_routed_specialists", input$allmodel_use_routed_specialists))
+    selected_finish_models <- selected_or_default_models(consensus_selection_value(selection, "xgb_finish_models", input$xgb_models), xgb_finish_default_models)
+    selected_probability_models <- selected_or_default_models(consensus_selection_value(selection, "xgb_probability_models", input$xgb_prob_models), xgb_probability_default_models)
+    selected_points_models <- selected_or_default_models(consensus_selection_value(selection, "xgb_points_models", input$xgb_points_models), xgb_points_default_models)
 
     finish_lookup <- chatter_finish_overlay %>%
       select(any_of(c("season", "round", "driver_code", "chatter_finish_nudge"))) %>%
@@ -6419,9 +6430,9 @@ server <- function(input, output, session) {
         ungroup()
     }
 
-    if (isTRUE(input$allmodel_use_xgb_finish)) {
+    if (use_xgb_finish) {
       rows <- xgb_finish_predictions %>%
-        filter(season == season_value, model %in% selected_or_default_models(input$xgb_models, xgb_finish_default_models))
+        filter(season == season_value, model %in% selected_finish_models)
       if (!is.null(round_value)) rows <- rows %>% filter(round == as.integer(round_value))
       rows <- rows %>%
         left_join(finish_lookup, by = c("season", "round", "driver_code")) %>%
@@ -6429,9 +6440,9 @@ server <- function(input, output, session) {
       family_rows$xgb_finish <- if (identical(consensus_mode, "model")) rank_each_selected_model(rows, rank_finish_family, "Finish model") else rank_finish_family(rows, "Finish model")
     }
 
-    if (isTRUE(input$allmodel_use_xgb_probability)) {
+    if (use_xgb_probability) {
       rows <- xgb_probability_predictions %>%
-        filter(season == season_value, model %in% selected_or_default_models(input$xgb_prob_models, xgb_probability_default_models))
+        filter(season == season_value, model %in% selected_probability_models)
       if (!is.null(round_value)) rows <- rows %>% filter(round == as.integer(round_value))
       rows <- rows %>%
         left_join(probability_lookup, by = c("season", "round", "driver_code")) %>%
@@ -6442,9 +6453,9 @@ server <- function(input, output, session) {
       family_rows$xgb_probability <- if (identical(consensus_mode, "model")) rank_each_selected_model(rows, rank_probability_family, "Probability model") else rank_probability_family(rows, "Probability model")
     }
 
-    if (isTRUE(input$allmodel_use_xgb_points)) {
+    if (use_xgb_points) {
       rows <- xgb_points_predictions %>%
-        filter(season == season_value, model %in% selected_or_default_models(input$xgb_points_models, xgb_points_default_models))
+        filter(season == season_value, model %in% selected_points_models)
       if (!is.null(round_value)) rows <- rows %>% filter(round == as.integer(round_value))
       rows <- rows %>%
         left_join(points_lookup, by = c("season", "round", "driver_code")) %>%
@@ -6452,7 +6463,7 @@ server <- function(input, output, session) {
       family_rows$xgb_points <- if (identical(consensus_mode, "model")) rank_each_selected_model(rows, rank_points_family, "Points model") else rank_points_family(rows, "Points model")
     }
 
-    if (isTRUE(input$allmodel_use_routed_specialists)) {
+    if (use_routed_specialists) {
       routed_models <- consensus_routed_models_for_race(season_value, round_value)
       finish_rows <- xgb_finish_predictions %>% filter(season == season_value) %>% filter_routed_specialist_rows(routed_models)
       probability_rows <- xgb_probability_predictions %>% filter(season == season_value) %>% filter_routed_specialist_rows(routed_models)
@@ -7353,14 +7364,21 @@ server <- function(input, output, session) {
       transmute(`Win rank` = consensus_rank, `Podium rank` = consensus_podium_rank, Driver = driver_name, Constructor = constructor_name, Start = display_start_position_label, Quali = display_quali_position_label, `Q delta` = display_quali_delta_label, `Avg win rank` = format_num(winner_rank_score, 2), `Avg podium rank` = format_num(podium_rank_score, 2), Families = family_count, `Win odds` = win_avg_american_odds_label, `Podium odds` = podium_display_american_odds_label, `Win edge` = format_pct(model_win_probability - win_market_no_vig_probability, 0.1), `Podium edge` = format_pct(model_podium_probability - podium_display_no_vig_probability, 0.1), `Actual finish` = format_int(finish_position), `Actual rank` = actual_rank_in_race)
   }, striped = TRUE, hover = TRUE, bordered = FALSE)
 
-  build_allmodel_family_consensus_ranks <- function(season_value, round_value = NULL) {
+  build_allmodel_family_consensus_ranks <- function(season_value, round_value = NULL, selection = NULL) {
     family_rows <- list()
     season_value <- as.integer(season_value)
-    consensus_mode <- input$allmodel_consensus_mode %||% "family"
+    consensus_mode <- consensus_selection_value(selection, "consensus_mode", input$allmodel_consensus_mode %||% "family")
+    use_xgb_finish <- isTRUE(consensus_selection_value(selection, "use_xgb_finish", input$allmodel_use_xgb_finish))
+    use_xgb_probability <- isTRUE(consensus_selection_value(selection, "use_xgb_probability", input$allmodel_use_xgb_probability))
+    use_xgb_points <- isTRUE(consensus_selection_value(selection, "use_xgb_points", input$allmodel_use_xgb_points))
+    use_routed_specialists <- isTRUE(consensus_selection_value(selection, "use_routed_specialists", input$allmodel_use_routed_specialists))
+    selected_finish_models <- selected_or_default_models(consensus_selection_value(selection, "xgb_finish_models", input$xgb_models), xgb_finish_default_models)
+    selected_probability_models <- selected_or_default_models(consensus_selection_value(selection, "xgb_probability_models", input$xgb_prob_models), xgb_probability_default_models)
+    selected_points_models <- selected_or_default_models(consensus_selection_value(selection, "xgb_points_models", input$xgb_points_models), xgb_points_default_models)
 
-    if (isTRUE(input$allmodel_use_xgb_finish)) {
+    if (use_xgb_finish) {
       rows <- xgb_finish_predictions %>%
-        filter(season == season_value, model %in% selected_or_default_models(input$xgb_models, xgb_finish_default_models))
+        filter(season == season_value, model %in% selected_finish_models)
       if (!is.null(round_value)) rows <- rows %>% filter(round == as.integer(round_value))
       family_rows$xgb_finish <- if (identical(consensus_mode, "model")) {
         rank_each_selected_model(rows, rank_finish_family, "Finish model")
@@ -7369,9 +7387,9 @@ server <- function(input, output, session) {
       }
     }
 
-    if (isTRUE(input$allmodel_use_xgb_probability)) {
+    if (use_xgb_probability) {
       rows <- xgb_probability_predictions %>%
-        filter(season == season_value, model %in% selected_or_default_models(input$xgb_prob_models, xgb_probability_default_models))
+        filter(season == season_value, model %in% selected_probability_models)
       if (!is.null(round_value)) rows <- rows %>% filter(round == as.integer(round_value))
       family_rows$xgb_probability <- if (identical(consensus_mode, "model")) {
         rank_each_selected_model(rows, rank_probability_family, "Probability model")
@@ -7380,9 +7398,9 @@ server <- function(input, output, session) {
       }
     }
 
-    if (isTRUE(input$allmodel_use_xgb_points)) {
+    if (use_xgb_points) {
       rows <- xgb_points_predictions %>%
-        filter(season == season_value, model %in% selected_or_default_models(input$xgb_points_models, xgb_points_default_models))
+        filter(season == season_value, model %in% selected_points_models)
       if (!is.null(round_value)) rows <- rows %>% filter(round == as.integer(round_value))
       family_rows$xgb_points <- if (identical(consensus_mode, "model")) {
         rank_each_selected_model(rows, rank_points_family, "Points model")
@@ -7391,7 +7409,7 @@ server <- function(input, output, session) {
       }
     }
 
-    if (isTRUE(input$allmodel_use_routed_specialists)) {
+    if (use_routed_specialists) {
       routed_models <- consensus_routed_models_for_race(season_value, round_value)
       family_rows$routed_specialists <- if (identical(consensus_mode, "model")) {
         build_routed_specialist_model_ranks(
@@ -8928,6 +8946,17 @@ server <- function(input, output, session) {
     selectInput("fantasy_round", "Race", choices = setNames(choices$round, choices$label), selected = default_race_round(choices))
   })
 
+  fantasy_locked_consensus_selection <- list(
+    consensus_mode = "family",
+    use_xgb_finish = TRUE,
+    use_xgb_probability = TRUE,
+    use_xgb_points = TRUE,
+    use_routed_specialists = TRUE,
+    xgb_finish_models = xgb_finish_default_models,
+    xgb_probability_models = xgb_probability_default_models,
+    xgb_points_models = xgb_points_default_models
+  )
+
   fantasy_mode_consensus_predictions <- function(use_chatter) {
     req(input$fantasy_season, input$fantasy_round)
     family_rows <- if (isTRUE(use_chatter)) {
@@ -8935,10 +8964,15 @@ server <- function(input, output, session) {
         input$fantasy_season,
         input$fantasy_round,
         as.numeric(input$fantasy_chatter_strength %||% 50) / 100,
-        TRUE
+        TRUE,
+        fantasy_locked_consensus_selection
       )
     } else {
-      build_allmodel_family_consensus_ranks(input$fantasy_season, input$fantasy_round)
+      build_allmodel_family_consensus_ranks(
+        input$fantasy_season,
+        input$fantasy_round,
+        fantasy_locked_consensus_selection
+      )
     }
 
     if (nrow(family_rows) == 0) return(tibble())
@@ -9045,7 +9079,7 @@ server <- function(input, output, session) {
     max_driver_entries <- max(1L, floor(portfolio_size * pmin(100, pmax(25, as.numeric(input$fantasy_driver_exposure %||% 75))) / 100))
     max_constructor_entries <- max(1L, floor(portfolio_size * pmin(100, pmax(10, as.numeric(input$fantasy_constructor_exposure %||% 50))) / 100))
     min_major_changes <- as.integer(input$fantasy_min_major_changes %||% 2L)
-    build <- function(label, captain_preference = "any", excluded_captains = character(), excluded_drivers = character(), salary_break = NULL, constructor_preference = "any", required_constructors = character(), scenario = label) {
+    build <- function(label, captain_preference = "any", excluded_captains = character(), excluded_drivers = character(), required_captains = character(), required_drivers = character(), salary_break = NULL, constructor_preference = "any", required_constructors = character(), scenario = label) {
       constructor_counts <- if (nrow(portfolio) == 0) integer() else table(portfolio$Name[portfolio$Slot == "CON"])
       exposure_exclusions <- names(constructor_counts[constructor_counts >= max_constructor_entries])
       driver_counts <- if (nrow(portfolio) == 0) integer() else table(portfolio$Name[portfolio$Slot %in% c("CPT", "DRV")])
@@ -9053,8 +9087,10 @@ server <- function(input, output, session) {
       x <- optimize_fantasy_lineup(
         drivers, constructors, input$fantasy_salary_cap, input$fantasy_flex_count, TRUE,
         captain_preference = captain_preference,
-        excluded_captains = excluded_captains,
-        excluded_drivers = union(excluded_drivers, driver_exposure_exclusions),
+        excluded_captains = setdiff(excluded_captains, required_captains),
+        excluded_drivers = setdiff(union(excluded_drivers, driver_exposure_exclusions), c(required_captains, required_drivers)),
+        required_captains = required_captains,
+        required_drivers = required_drivers,
         captain_salary_break = salary_break,
         constructor_preference = constructor_preference,
         excluded_constructors = exposure_exclusions,
@@ -9076,10 +9112,48 @@ server <- function(input, output, session) {
       build("B — Premium captain pivot", "high", excluded_captains = primary_captain),
       build("C — Rival / leverage constructor", "low", excluded_captains = c(primary_captain, primary_drivers[2]), required_constructors = setdiff(constructors$constructor_name, primary_constructor)),
       build("D — Chaos / place differential", "low", excluded_captains = c(primary_captain), excluded_drivers = primary_drivers[2]),
-      build("E — Favorite constructor dominance", "high", excluded_captains = c(primary_captain), salary_break = salary_break, required_constructors = primary_constructor),
-      build("F — Premium captain / discounted constructor", "high", excluded_captains = c(primary_captain, primary_drivers[2]), constructor_preference = "low"),
-      build("G — Diversified projection build", "any", excluded_captains = c(primary_captain, primary_drivers[2], primary_drivers[3])),
-      build("H — Value captain unlock", "low", excluded_captains = c(primary_captain), salary_break = salary_break)
+      build("E — Favorite constructor dominance", "high", excluded_captains = c(primary_captain), salary_break = salary_break, required_constructors = primary_constructor)
+    )
+    premium_captain_target <- drivers %>%
+      filter(mock_salary >= salary_break) %>%
+      mutate(current_appearances = vapply(driver_name, function(driver) sum(portfolio$Name[portfolio$Slot %in% c("CPT", "DRV")] == driver), integer(1))) %>%
+      arrange(current_appearances, desc(mock_salary), desc(fantasy_projection), driver_name) %>%
+      slice(1) %>%
+      pull(driver_name)
+    premium_expansion_exclusion <- portfolio %>%
+      filter(Slot %in% c("CPT", "DRV")) %>%
+      count(Name, sort = TRUE) %>%
+      slice(1) %>%
+      pull(Name)
+    result <- bind_rows(
+      result,
+      build("F — Undercovered premium outcome", "high", excluded_drivers = premium_expansion_exclusion, required_drivers = premium_captain_target, constructor_preference = "low"),
+      build("G — Diversified projection build", "any", excluded_captains = c(primary_captain, primary_drivers[2], primary_drivers[3]))
+    )
+    top_constructor_pool <- constructors %>%
+      arrange(desc(mock_salary), desc(fantasy_projection), constructor_name) %>%
+      slice_head(n = 4L) %>%
+      pull(constructor_name)
+    constructor_coverage_target <- constructors %>%
+      filter(constructor_name %in% top_constructor_pool) %>%
+      arrange(fantasy_projection, mock_salary, constructor_name) %>%
+      slice(1) %>%
+      pull(constructor_name)
+    constructor_expansion_exclusion <- portfolio %>%
+      filter(Slot %in% c("CPT", "DRV")) %>%
+      count(Name, sort = TRUE) %>%
+      slice(1) %>%
+      pull(Name)
+    result <- bind_rows(
+      result,
+      build(
+        "H — Value captain / constructor coverage",
+        "low",
+        excluded_captains = primary_captain,
+        excluded_drivers = constructor_expansion_exclusion,
+        salary_break = salary_break,
+        required_constructors = constructor_coverage_target
+      )
     )
     result
   }
@@ -9474,12 +9548,20 @@ server <- function(input, output, session) {
       if (any(near_duplicate)) next
       preferred_source <- if_else(selected$ScenarioKey %in% c("C", "F", "H"), "Chatter", "Baseline")
       source_role_fit <- sum(selected$Source == preferred_source)
+      premium_expansion_fit <- sum(selected$ScenarioKey == "F" & selected$Source == "Chatter")
+      driver_concentration_penalty <- sum(pmax(as.numeric(driver_counts) - 4, 0)^2)
+      constructor_counts <- table(selected$Constructor)
+      constructor_concentration_penalty <- sum(pmax(as.numeric(constructor_counts) - 3, 0)^2)
       score <- sum(selected$RobustProjection) +
         0.15 * sum(selected$SourceProjection) +
         0.05 * sum(selected$CeilingProjection) +
-        50 * source_role_fit +
+        2 * source_role_fit +
+        15 * premium_expansion_fit +
         1.5 * n_distinct(selected$Captain) +
-        n_distinct(selected$Constructor) - 0.35 * sum(shared)
+        n_distinct(selected$Constructor) -
+        20 * driver_concentration_penalty -
+        15 * constructor_concentration_penalty -
+        0.35 * sum(shared)
       if (score > best_score) {
         best <- indexes
         best_score <- score
@@ -9491,52 +9573,33 @@ server <- function(input, output, session) {
       others <- setdiff(seq_len(nrow(selected)), i)
       mean(vapply(others, function(j) length(intersect(selected$Roster[[i]], selected$Roster[[j]])), numeric(1)))
     }, numeric(1))
-    fixed_core_keys <- c("A", "B", "C", "D", "H")
-    fixed_core <- selected %>%
-      filter(ScenarioKey %in% fixed_core_keys) %>%
-      mutate(CoreOrder = match(ScenarioKey, fixed_core_keys)) %>%
-      arrange(CoreOrder)
-    remaining_choices <- selected %>%
-      filter(ScenarioKey %in% c("E", "F", "G")) %>%
-      rowwise() %>%
-      mutate(
-        AverageCoreOverlap = mean(vapply(fixed_core$Roster, function(core_roster) length(intersect(Roster, core_roster)), numeric(1))),
-        DiversifiedSlotScore = RobustProjection + 0.15 * CeilingProjection -
-          4 * AverageCoreOverlap +
-          4 * as.integer(!Captain %in% fixed_core$Captain) +
-          2 * as.integer(!Constructor %in% fixed_core$Constructor) +
-          case_when(ScenarioKey == "G" ~ 10, ScenarioKey == "F" ~ 2, TRUE ~ 0) -
-          5 * as.integer(ScenarioKey == "E") * sum(fixed_core$Constructor == Constructor)
-      ) %>% ungroup() %>%
-      arrange(desc(DiversifiedSlotScore), desc(RobustProjection), desc(CeilingProjection))
-    diversified_id <- remaining_choices$CandidateID[[1]]
-    optional_ids <- remaining_choices$CandidateID[-1]
-    ordered_ids <- c(fixed_core$CandidateID, diversified_id, optional_ids)
+    selected <- selected %>%
+      arrange(desc(RobustProjection), desc(MedianProjection), desc(CeilingProjection), Source, ScenarioKey)
+    ordered_ids <- selected$CandidateID
     use_map <- tibble(
       CandidateID = ordered_ids,
       UseOrder = seq_along(ordered_ids),
-      `Portfolio tier` = c(rep("Recommended core portfolio", 6L), "First optional expansion", "Second optional expansion"),
-      `Contest use` = c(
-        "Single-entry only",
-        "Three-max only — Entry 1",
-        "Three-max only — Entry 2",
-        "Three-max only — Entry 3",
-        "Multi-entry insurance pool — Entry 1",
-        "Multi-entry insurance pool — Entry 2",
-        "Multi-entry insurance pool — Entry 3",
-        "Multi-entry insurance pool — Entry 4"
-      ),
-      `Portfolio role` = c(
-        "Best median projection",
-        "Favorite wins; teammate fails",
-        "Rival-constructor outcome",
-        "Attrition / place-differential outcome",
-        "Value-captain construction",
-        "Best remaining genuinely diversified lineup",
-        "First optional expansion",
-        "Second optional expansion"
+      `Portfolio tier` = c(
+        "Best single-entry",
+        rep("Included in best three", 2L),
+        rep("Added for best five", 2L),
+        rep("Added for full eight", 3L)
       )
-    )
+    ) %>%
+      mutate(
+        `Contest use` = case_when(
+          UseOrder == 1L ~ "Single-entry; Entry 1 of every set",
+          UseOrder <= 3L ~ "Best three-lineup set",
+          UseOrder <= 5L ~ "Best five-lineup set",
+          TRUE ~ "Full eight-lineup portfolio"
+        ),
+        `Portfolio role` = case_when(
+          UseOrder == 1L ~ "Highest robust projection",
+          UseOrder <= 3L ~ "Top-three quality anchor",
+          UseOrder <= 5L ~ "Five-lineup quality diversifier",
+          TRUE ~ "Full-portfolio scenario expansion"
+        )
+      )
     selected <- selected %>%
       left_join(use_map, by = "CandidateID") %>%
       arrange(UseOrder) %>%
@@ -9604,7 +9667,7 @@ server <- function(input, output, session) {
   }, striped = TRUE, hover = TRUE, bordered = FALSE)
 
   output$fantasy_combined_download <- downloadHandler(
-    filename = function() paste0("f1_fantasy_core6_expanded8_", input$fantasy_season, "_R", input$fantasy_round, ".csv"),
+    filename = function() paste0("f1_fantasy_best1_best3_best5_full8_", input$fantasy_season, "_R", input$fantasy_round, ".csv"),
     content = function(file) {
       readr::write_csv(fantasy_combined_portfolio(), file, na = "")
     }
@@ -9769,7 +9832,7 @@ server <- function(input, output, session) {
         class = "event-title-block",
         div(class = "eyebrow", paste0(race$season, " Round ", race$round)),
         h1(race$race_name),
-        p(paste("DraftKings projection ordered by the selected Model Consensus families; finish magnitudes come from the selected finish models, with rolling form as fallback.", salary_note))
+        p(paste("DraftKings projection uses the locked Fantasy consensus recipe so controls on other tabs cannot silently change the rosters; finish magnitudes use the default finish models with rolling form as fallback.", salary_note))
       )
     )
   })
@@ -9946,16 +10009,16 @@ server <- function(input, output, session) {
         round,
         race_name,
         chatter_overlay = isTRUE(input$fantasy_use_chatter),
-        consensus_mode = input$allmodel_consensus_mode %||% "family",
-        include_finish_family = isTRUE(input$allmodel_use_xgb_finish),
-        include_probability_family = isTRUE(input$allmodel_use_xgb_probability),
-        include_points_family = isTRUE(input$allmodel_use_xgb_points),
-        include_routed_specialists = isTRUE(input$allmodel_use_routed_specialists),
+        consensus_mode = "family",
+        include_finish_family = TRUE,
+        include_probability_family = TRUE,
+        include_points_family = TRUE,
+        include_routed_specialists = TRUE,
         consensus_families = fantasy_consensus_families,
         finish_magnitude_source = "Selected XGB finish models; family selections determine consensus order",
-        finish_models_used = paste(selected_or_default_models(input$xgb_models, xgb_finish_default_models), collapse = " | "),
-        probability_models_used = paste(selected_or_default_models(input$xgb_prob_models, xgb_probability_default_models), collapse = " | "),
-        points_models_used = paste(selected_or_default_models(input$xgb_points_models, xgb_points_default_models), collapse = " | "),
+        finish_models_used = paste(xgb_finish_default_models, collapse = " | "),
+        probability_models_used = paste(xgb_probability_default_models, collapse = " | "),
+        points_models_used = paste(xgb_points_default_models, collapse = " | "),
         fantasy_rank,
         driver_code,
         driver_name,
