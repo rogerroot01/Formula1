@@ -3807,6 +3807,7 @@ ui <- fluidPage(
             div(
               class = "tree-tab-content",
               uiOutput("fantasy_header"),
+                div(class = "panel", h2("Five Strategy Philosophies"), tableOutput("fantasy_strategy_table")),
                 div(class = "panel", h2("Best Single-Entry Lineup"), tableOutput("fantasy_single_lineup_table"), tableOutput("fantasy_single_lineup_summary")),
                 div(class = "panel", h2("Best Three-Entry-Max Portfolio"), p(class = "hint", "These three cards are deliberately different race scripts, not cosmetic one-driver swaps."),
                     div(style = "display:grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap:16px;",
@@ -3815,7 +3816,6 @@ ui <- fluidPage(
                         div(class = "panel", h3("Lineup C — Chaos / place differential"), tableOutput("fantasy_three_c_table"), tableOutput("fantasy_three_c_summary"))
                     )
                 ),
-                div(class = "panel", h2("Five Strategy Philosophies"), tableOutput("fantasy_strategy_table")),
                 div(class = "panel", h2("Contest Portfolio Summary"), tableOutput("fantasy_portfolio_summary_table")),
               div(
                 class = "panel",
@@ -8873,6 +8873,40 @@ server <- function(input, output, session) {
       build("E — Value captain unlock", "low", excluded_captains = c(primary_captain), salary_break = salary_break)
     )
   })
+
+  fantasy_portfolio_card <- function(label) {
+    fantasy_portfolio_lineups() %>% filter(Lineup == label)
+  }
+
+  render_fantasy_card <- function(label) {
+    rows <- fantasy_portfolio_card(label)
+    validate(need(nrow(rows) > 0, "No lineup fits under the current cap and slot settings."))
+    rows %>% transmute(
+      Slot, Name, Constructor,
+      Salary = paste0("$", format(round(Salary, 0), big.mark = ",")),
+      Projection = format_num(Projection, 2),
+      `Value / $1k` = format_num(Value, 2)
+    )
+  }
+
+  render_fantasy_card_summary <- function(label) {
+    rows <- fantasy_portfolio_card(label)
+    validate(need(nrow(rows) > 0, "No lineup summary available."))
+    rows %>% summarise(
+      `Total salary` = paste0("$", format(round(first(total_salary), 0), big.mark = ",")),
+      `Salary left` = paste0("$", format(round(as.numeric(input$fantasy_salary_cap) - first(total_salary), 0), big.mark = ",")),
+      `Projected DK points` = format_num(first(total_projection), 2)
+    )
+  }
+
+  output$fantasy_single_lineup_table <- renderTable(render_fantasy_card("A — Best single-entry"), striped = TRUE, hover = TRUE, bordered = FALSE)
+  output$fantasy_single_lineup_summary <- renderTable(render_fantasy_card_summary("A — Best single-entry"), striped = TRUE, hover = TRUE, bordered = FALSE)
+  output$fantasy_three_a_table <- renderTable(render_fantasy_card("B — Favorite driver / teammate fade"), striped = TRUE, hover = TRUE, bordered = FALSE)
+  output$fantasy_three_a_summary <- renderTable(render_fantasy_card_summary("B — Favorite driver / teammate fade"), striped = TRUE, hover = TRUE, bordered = FALSE)
+  output$fantasy_three_b_table <- renderTable(render_fantasy_card("C — Rival / leverage constructor"), striped = TRUE, hover = TRUE, bordered = FALSE)
+  output$fantasy_three_b_summary <- renderTable(render_fantasy_card_summary("C — Rival / leverage constructor"), striped = TRUE, hover = TRUE, bordered = FALSE)
+  output$fantasy_three_c_table <- renderTable(render_fantasy_card("D — Chaos / place differential"), striped = TRUE, hover = TRUE, bordered = FALSE)
+  output$fantasy_three_c_summary <- renderTable(render_fantasy_card_summary("D — Chaos / place differential"), striped = TRUE, hover = TRUE, bordered = FALSE)
 
   output$fantasy_portfolio_table <- renderTable({
     rows <- fantasy_portfolio_lineups()
