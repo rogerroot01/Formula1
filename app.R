@@ -3807,16 +3807,17 @@ ui <- fluidPage(
             div(
               class = "tree-tab-content",
               uiOutput("fantasy_header"),
-                div(class = "panel", h2("Five Strategy Philosophies"), tableOutput("fantasy_strategy_table")),
                 div(class = "panel", h2("Best Single-Entry Lineup"), tableOutput("fantasy_single_lineup_table"), tableOutput("fantasy_single_lineup_summary")),
                 div(class = "panel", h2("Best Three-Entry-Max Portfolio"), p(class = "hint", "These three cards are deliberately different race scripts, not cosmetic one-driver swaps."),
-                    div(style = "display:grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap:16px;",
+                    div(class = "fantasy-three-grid",
                         div(class = "panel", h3("Lineup A — Favorite driver / teammate fade"), tableOutput("fantasy_three_a_table"), tableOutput("fantasy_three_a_summary")),
                         div(class = "panel", h3("Lineup B — Rival / leverage constructor"), tableOutput("fantasy_three_b_table"), tableOutput("fantasy_three_b_summary")),
                         div(class = "panel", h3("Lineup C — Chaos / place differential"), tableOutput("fantasy_three_c_table"), tableOutput("fantasy_three_c_summary"))
                     )
                 ),
                 div(class = "panel", h2("Contest Portfolio Summary"), tableOutput("fantasy_portfolio_summary_table")),
+                div(class = "panel", h2("Five Strategy Philosophies"), tableOutput("fantasy_strategy_table")),
+                div(class = "panel", h2("Portfolio Lineups — A through H"), p(class = "hint", "The full ordered lineup list is shown here for quick comparison across the single-entry, three-max, and strategy variants."), downloadButton("fantasy_portfolio_download", "Download all 8 rosters (CSV)"), tableOutput("fantasy_portfolio_table")),
               div(
                 class = "panel",
                 div(
@@ -8870,7 +8871,10 @@ server <- function(input, output, session) {
       build("B — Favorite driver / teammate fade", "high", excluded_captains = primary_captain),
       build("C — Rival / leverage constructor", "low", excluded_captains = c(primary_captain, primary_drivers[2])),
       build("D — Chaos / place differential", "low", excluded_captains = c(primary_captain), excluded_drivers = primary_drivers[2]),
-      build("E — Value captain unlock", "low", excluded_captains = c(primary_captain), salary_break = salary_break)
+      build("E — Favorite constructor dominance", "high", excluded_captains = c(primary_captain), salary_break = salary_break),
+      build("F — Premium captain / discounted constructor", "high", excluded_captains = c(primary_captain, primary_drivers[2])),
+      build("G — Balanced build", "any", excluded_captains = c(primary_captain, primary_drivers[2], primary_drivers[3])),
+      build("H — Value captain unlock", "low", excluded_captains = c(primary_captain), salary_break = salary_break)
     )
   })
 
@@ -8936,9 +8940,17 @@ server <- function(input, output, session) {
     tibble(
       Strategy = c("Favorite constructor dominates", "Favorite driver wins / teammate struggles", "Rival constructor leverage", "Chaos, attrition, or place differential", "Value captain unlocks premium pieces"),
       `What it protects against` = c("Both cars score", "Winner scores while teammate fails", "Favorite team underperforms", "Penalties, safety cars, or DNFs", "Premium captain plus elite flex combination"),
-      `Portfolio expression` = c("B — team-dominance variant", "A/B — winner without constructor dependency", "C — leverage variant", "D — recovery variant", "E — salary-architecture variant")
+      `Portfolio expression` = c("E — team-dominance variant", "A/B — winner without constructor dependency", "C — leverage variant", "D — recovery variant", "H — salary-architecture variant")
     )
   }, striped = TRUE, hover = TRUE, bordered = FALSE)
+
+  output$fantasy_portfolio_download <- downloadHandler(
+    filename = function() paste0("f1_fantasy_rosters_", input$fantasy_season, "_R", input$fantasy_round, ".csv"),
+    content = function(file) {
+      rows <- fantasy_portfolio_lineups()
+      readr::write_csv(rows, file, na = "")
+    }
+  )
 
   output$fantasy_header <- renderUI({
     rows <- fantasy_driver_projections()
