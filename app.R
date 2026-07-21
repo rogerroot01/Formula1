@@ -3846,15 +3846,14 @@ ui <- fluidPage(
                 selected = if (any(rf_race_choices$season == 2026L)) 2026L else if (nrow(rf_race_choices) > 0) max(rf_race_choices$season) else NULL
               ),
               uiOutput("fantasy_race_selector"),
-              checkboxInput("fantasy_use_chatter", "Add chatter overlay", value = TRUE),
-              p(class = "hint", "Use this switch to preview how the A–H candidates change. The recommended portfolio below always evaluates both modes."),
+              checkboxInput("fantasy_use_chatter", "Preview chatter candidates (comparison only)", value = TRUE),
+              p(class = "hint", "This switch changes only the A–H preview tables. The recommended portfolio automatically evaluates both Baseline and Chatter, so this switch does not change its results."),
               numericInput("fantasy_salary_cap", "Salary cap", value = 50000, min = 10000, step = 500),
               numericInput("fantasy_flex_count", "Flex drivers", value = 4, min = 1, max = 6, step = 1),
               numericInput("fantasy_driver_exposure", "Max driver exposure (%)", value = 75, min = 25, max = 100, step = 5),
               numericInput("fantasy_constructor_exposure", "Max constructor exposure (%)", value = 50, min = 10, max = 100, step = 10),
               numericInput("fantasy_min_major_changes", "Minimum major changes", value = 2, min = 2, max = 4, step = 1),
               numericInput("fantasy_chatter_strength", "Chatter strength (%)", value = 50, min = 0, max = 100, step = 10),
-              selectInput("fantasy_recommended_size", "Recommended portfolio size", choices = c("6 lineups" = 6, "8 lineups" = 8), selected = 6),
               p(class = "hint", "Every lineup must replace at least one driver, differ in at least two major ways, and share no more than four of six roster selections. Chatter is centered and bounded before it nudges projections.")
             ),
             div(
@@ -3864,10 +3863,10 @@ ui <- fluidPage(
                   class = "panel",
                   div(
                     style = "display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;",
-                    h2(style = "margin-bottom:0;", "Recommended Reduced Portfolio"),
+                    h2(style = "margin-bottom:0;", "Recommended Core Portfolio + Optional Expansion"),
                     downloadButton("fantasy_combined_download", "Download recommended portfolio (CSV)")
                   ),
-                  p(class = "hint", "Chooses one Baseline or Chatter version per race script, with at least three from each mode, five captains, three constructors, and no near duplicates."),
+                  p(class = "hint", "Entries 1–6 form the recommended core; Entries 7–8 are optional expansion choices. Entry 1 is single-entry only, Entries 2–4 are three-max only, and Entries 5–8 are the multi-entry insurance pool. Every roster is selected intact from the 16 candidates."),
                   tableOutput("fantasy_combined_summary_table"),
                   tableOutput("fantasy_combined_table")
                 ),
@@ -9428,8 +9427,7 @@ server <- function(input, output, session) {
         Roster = list(c(unique(x$Name[x$Slot %in% c("CPT", "DRV")]), x$Name[x$Slot == "CON"][1]))
       )
     }))
-    portfolio_size <- as.integer(input$fantasy_recommended_size %||% 6L)
-    portfolio_size <- if (portfolio_size >= 8L) 8L else 6L
+    portfolio_size <- 8L
     validate(need(nrow(meta) >= portfolio_size, "Too few Baseline/Chatter candidates are available."))
     combinations <- utils::combn(seq_len(nrow(meta)), portfolio_size)
     best <- integer()
@@ -9438,15 +9436,7 @@ server <- function(input, output, session) {
       indexes <- combinations[, column]
       selected <- meta[indexes, ]
       if (n_distinct(selected$ScenarioKey) != portfolio_size) next
-      if (portfolio_size == 8L && !setequal(selected$ScenarioKey, LETTERS[1:8])) next
-      if (portfolio_size == 6L) {
-        if (!all(c("A", "B", "C", "D", "H") %in% selected$ScenarioKey)) next
-        core_source <- c(A = "Baseline", B = "Baseline", C = "Chatter", D = "Baseline", H = "Chatter")
-        core <- selected %>% filter(ScenarioKey %in% names(core_source))
-        if (any(core$Source != unname(core_source[core$ScenarioKey]))) next
-        upside <- selected %>% filter(ScenarioKey %in% c("E", "F", "G"))
-        if (nrow(upside) != 1L || upside$Source[[1]] != "Chatter") next
-      }
+      if (!setequal(selected$ScenarioKey, LETTERS[1:8])) next
       source_counts <- table(selected$Source)
       if (any(!c("Baseline", "Chatter") %in% names(source_counts))) next
       if (any(source_counts[c("Baseline", "Chatter")] < 3L)) next
@@ -9484,23 +9474,61 @@ server <- function(input, output, session) {
       others <- setdiff(seq_len(nrow(selected)), i)
       mean(vapply(others, function(j) length(intersect(selected$Roster[[i]], selected$Roster[[j]])), numeric(1)))
     }, numeric(1))
+    fixed_core_keys <- c("A", "B", "C", "D", "H")
+    fixed_core <- selected %>%
+      filter(ScenarioKey %in% fixed_core_keys) %>%
+      mutate(CoreOrder = match(ScenarioKey, fixed_core_keys)) %>%
+      arrange(CoreOrder)
+    remaining_choices <- selected %>%
+      filter(ScenarioKey %in% c("E", "F", "G")) %>%
+      rowwise() %>%
+      mutate(
+        AverageCoreOverlap = mean(vapply(fixed_core$Roster, function(core_roster) length(intersect(Roster, core_roster)), numeric(1))),
+        DiversifiedSlotScore = RobustProjection + 0.15 * CeilingProjection -
+          4 * AverageCoreOverlap +
+          4 * as.integer(!Captain %in% fixed_core$Captain) +
+          2 * as.integer(!Constructor %in% fixed_core$Constructor) +
+          case_when(ScenarioKey == "G" ~ 10, ScenarioKey == "F" ~ 2, TRUE ~ 0) -
+          5 * as.integer(ScenarioKey == "E") * sum(fixed_core$Constructor == Constructor)
+      ) %>% ungroup() %>%
+      arrange(desc(DiversifiedSlotScore), desc(RobustProjection), desc(CeilingProjection))
+    diversified_id <- remaining_choices$CandidateID[[1]]
+    optional_ids <- remaining_choices$CandidateID[-1]
+    ordered_ids <- c(fixed_core$CandidateID, diversified_id, optional_ids)
+    use_map <- tibble(
+      CandidateID = ordered_ids,
+      UseOrder = seq_along(ordered_ids),
+      `Portfolio tier` = c(rep("Recommended core portfolio", 6L), "First optional expansion", "Second optional expansion"),
+      `Contest use` = c(
+        "Single-entry only",
+        "Three-max only — Entry 1",
+        "Three-max only — Entry 2",
+        "Three-max only — Entry 3",
+        "Multi-entry insurance pool — Entry 1",
+        "Multi-entry insurance pool — Entry 2",
+        "Multi-entry insurance pool — Entry 3",
+        "Multi-entry insurance pool — Entry 4"
+      ),
+      `Portfolio role` = c(
+        "Best median projection",
+        "Favorite wins; teammate fails",
+        "Rival-constructor outcome",
+        "Attrition / place-differential outcome",
+        "Value-captain construction",
+        "Best remaining genuinely diversified lineup",
+        "First optional expansion",
+        "Second optional expansion"
+      )
+    )
     selected <- selected %>%
-      arrange(desc(RobustProjection), desc(CeilingProjection), Source, Candidate) %>%
+      left_join(use_map, by = "CandidateID") %>%
+      arrange(UseOrder) %>%
       mutate(
         `Combined lineup` = paste0("Entry ", row_number()),
-        `Portfolio role` = case_when(
-          ScenarioKey == "A" ~ "Best median projection",
-          ScenarioKey == "B" ~ "Favorite driver wins; teammate fails",
-          ScenarioKey == "C" ~ "Rival constructor wins",
-          ScenarioKey == "D" ~ "Attrition / place differential",
-          ScenarioKey == "H" ~ "Value captain unlocks premium drivers",
-          Source == "Chatter" ~ "Chatter-specific upside scenario",
-          TRUE ~ "Additional diversified race script"
-        ),
         SelectionScore = best_score
       )
     candidates %>%
-      inner_join(selected %>% select(CandidateID, `Combined lineup`, Candidate, `Portfolio role`, AverageSharedSelections, SelectionScore), by = "CandidateID") %>%
+      inner_join(selected %>% select(CandidateID, `Combined lineup`, Candidate, `Portfolio tier`, `Contest use`, `Portfolio role`, AverageSharedSelections, SelectionScore), by = "CandidateID") %>%
       arrange(as.integer(str_remove(`Combined lineup`, "Entry ")), factor(Slot, levels = c("CPT", "DRV", "CON")))
   })
 
@@ -9533,7 +9561,7 @@ server <- function(input, output, session) {
     rows <- fantasy_combined_portfolio()
     validate(need(nrow(rows) > 0, "No recommended combined portfolio is available."))
     rows %>%
-      group_by(`Combined lineup`, Source, Candidate, `Portfolio role`) %>%
+      group_by(`Combined lineup`, `Portfolio tier`, `Contest use`, Source, Candidate, `Portfolio role`) %>%
       summarise(
         Captain = Name[Slot == "CPT"][1],
         Constructor = Name[Slot == "CON"][1],
@@ -9552,14 +9580,14 @@ server <- function(input, output, session) {
     rows <- fantasy_combined_portfolio()
     validate(need(nrow(rows) > 0, "No recommended combined portfolio is available."))
     rows %>% transmute(
-      `Combined lineup`, Source, Candidate, `Portfolio role`, Slot, Name, Constructor,
+      `Combined lineup`, `Portfolio tier`, `Contest use`, Source, Candidate, `Portfolio role`, Slot, Name, Constructor,
       Salary = paste0("$", format(round(Salary, 0), big.mark = ",")),
       Projection = format_num(Projection, 2)
     )
   }, striped = TRUE, hover = TRUE, bordered = FALSE)
 
   output$fantasy_combined_download <- downloadHandler(
-    filename = function() paste0("f1_fantasy_recommended_", input$fantasy_recommended_size %||% 6, "_", input$fantasy_season, "_R", input$fantasy_round, ".csv"),
+    filename = function() paste0("f1_fantasy_core6_expanded8_", input$fantasy_season, "_R", input$fantasy_round, ".csv"),
     content = function(file) {
       readr::write_csv(fantasy_combined_portfolio(), file, na = "")
     }
