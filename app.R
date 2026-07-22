@@ -2795,15 +2795,19 @@ ui <- fluidPage(
       (function () {
         var busyTimer = null;
         var busyEnabled = false;
+        var shinyBusy = false;
         function fantasyTabIsActive() {
           var tabLinks = document.querySelectorAll('#main_tabs a[data-toggle=tab]');
-          var fantasyLink = Array.prototype.slice.call(tabLinks).find(function (link) {
-            return link.textContent.trim() === 'Fantasy Lineup';
+          var fantasyLinks = Array.prototype.slice.call(tabLinks).filter(function (link) {
+            var label = link.textContent.trim();
+            return label === 'Fantasy Lineup' || label === 'Fantasy Lineup 2';
           });
-          return Boolean(fantasyLink && fantasyLink.parentElement && fantasyLink.parentElement.classList.contains('active'));
+          return fantasyLinks.some(function (link) {
+            return Boolean(link.parentElement && link.parentElement.classList.contains('active'));
+          });
         }
         function showBusy() {
-          if (!busyEnabled || !fantasyTabIsActive()) {
+          if (!busyEnabled || !shinyBusy || !fantasyTabIsActive()) {
             hideBusy();
             return;
           }
@@ -2825,10 +2829,16 @@ ui <- fluidPage(
         document.addEventListener('DOMContentLoaded', function () {
           if (window.jQuery) {
             window.jQuery(document)
-              .on('shiny:busy', showBusy)
-              .on('shiny:idle', hideBusy)
+              .on('shiny:busy', function () {
+                shinyBusy = true;
+                showBusy();
+              })
+              .on('shiny:idle', function () {
+                shinyBusy = false;
+                hideBusy();
+              })
               .on('shown.bs.tab', '#main_tabs a[data-toggle=tab]', function () {
-                if (!fantasyTabIsActive()) hideBusy();
+                if (fantasyTabIsActive()) showBusy(); else hideBusy();
               });
           }
         });
@@ -2917,10 +2927,10 @@ ui <- fluidPage(
         });
         if (enterButton && splash) {
           enterButton.addEventListener('click', function () {
+            if (window.enableAppBusyOverlay) window.enableAppBusyOverlay();
             splash.classList.add('splash-hidden');
             window.setTimeout(function () {
               splash.style.display = 'none';
-              if (window.enableAppBusyOverlay) window.enableAppBusyOverlay();
             }, 450);
           });
         }
@@ -10261,6 +10271,9 @@ server <- function(input, output, session) {
     if (nrow(choices) == 0) choices <- race_choices %>% filter(season == as.integer(input$fantasy2_season))
     selectInput("fantasy2_round", "Race", choices = setNames(choices$round, choices$label), selected = default_race_round(choices))
   })
+  # This input is required by every Fantasy Lineup 2 calculation. Initialize it
+  # while the tab is hidden so a fast first visit cannot land on a blank req().
+  outputOptions(output, "fantasy2_race_selector", suspendWhenHidden = FALSE)
 
   fantasy2_mode_consensus_predictions <- function(use_chatter) {
     req(input$fantasy2_season, input$fantasy2_round)
@@ -10756,6 +10769,14 @@ server <- function(input, output, session) {
       inner_join(selected %>% select(CandidateID, `Combined lineup`, Candidate, `Portfolio tier`, `Contest use`), by = "CandidateID") %>%
       arrange(as.integer(str_remove(`Combined lineup`, "Entry ")), factor(Slot, levels = c("CPT", "DRV", "CON")))
   })
+
+  # Explicitly start the portfolio on tab activation. This does not duplicate work:
+  # Shiny's reactive cache supplies the same result to all of the visible tables.
+  observeEvent(list(input$main_tabs, input$fantasy2_round), {
+    req(identical(input$main_tabs, "Fantasy Lineup 2"), input$fantasy2_round)
+    fantasy2_portfolio_lineups()
+    fantasy2_combined_portfolio()
+  }, ignoreInit = TRUE, priority = 100)
 
   fantasy2_format_lineup <- function(rows) {
     rows %>%
