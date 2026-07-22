@@ -11263,7 +11263,14 @@ server <- function(input, output, session) {
           0.15 * finish_pct +
           0.10 * chatter_pct +
           0.10 * volatility_pct
-        ) + 2.0 * penalty_recovery_floor
+        ) + 2.0 * penalty_recovery_floor,
+        fragility_score = 100 * (
+          0.30 * (1 - projection_pct) +
+          0.25 * (1 - finish_reliability) +
+          0.20 * volatility_pct +
+          0.15 * (1 - teammate_pct) +
+          0.10 * (1 - percent_rank(value_path_score))
+        ) - 2 * penalty_recovery_floor
       )
 
     premium_salary_cutoff <- quantile(drivers$mock_salary, 0.75, na.rm = TRUE, names = FALSE, type = 1)
@@ -11279,6 +11286,11 @@ server <- function(input, output, session) {
       mutate(
         captain_tier = if_else(mock_salary <= median(drivers$mock_salary, na.rm = TRUE), "Value captain", "Mid-priced captain")
       )
+    fragile_value_names <- drivers %>%
+      filter(mock_salary <= median(mock_salary, na.rm = TRUE), penalty_recovery_floor <= 0) %>%
+      arrange(desc(fragility_score), robust_projection, driver_name) %>%
+      slice_head(n = 1L) %>%
+      pull(driver_name)
 
     baseline_constructors <- fantasy_constructor_rows(baseline)
     chatter_constructors <- fantasy_constructor_rows(chatter)
@@ -11345,6 +11357,7 @@ server <- function(input, output, session) {
       robust_drivers = robust_drivers,
       robust_constructors = robust_constructors,
       captain_pool = captain_pool,
+      fragile_value_names = fragile_value_names,
       premium_names = premium_names,
       premium_salary_cutoff = premium_salary_cutoff
     )
@@ -11356,7 +11369,7 @@ server <- function(input, output, session) {
     build_candidate <- function(driver_rows, constructor_rows, source, architecture, label,
                                 captain = character(), constructor = character(),
                                 required_drivers = character(), require_premium = FALSE,
-                                architecture_weight = 0) {
+                                architecture_weight = 0, excluded_drivers = character()) {
       lineup <- optimize_fantasy_lineup(
         driver_rows,
         constructor_rows,
@@ -11364,6 +11377,8 @@ server <- function(input, output, session) {
         input$fantasy3_flex_count,
         TRUE,
         captain_preference = "any",
+        excluded_captains = excluded_drivers,
+        excluded_drivers = excluded_drivers,
         required_captains = captain,
         required_drivers = required_drivers,
         required_any_drivers = if (isTRUE(require_premium)) x$premium_names else character(),
@@ -11487,6 +11502,69 @@ server <- function(input, output, session) {
     hybrid_c <- bind_rows(hybrid_c_parts)
 
     candidates <- bind_rows(original, lineup2, hybrid_a, hybrid_b, hybrid_c)
+    base_candidate_exposure <- candidates %>%
+      filter(Slot %in% c("CPT", "DRV")) %>%
+      count(Name, name = "candidate_lineups")
+    ordinary_premium_relief <- base_candidate_exposure %>%
+      filter(Name %in% x$premium_names) %>%
+      arrange(desc(candidate_lineups), Name) %>%
+      slice_head(n = 1L) %>% pull(Name)
+    base_candidate_count <- n_distinct(candidates$CandidateID)
+    fragile_relief <- base_candidate_exposure %>%
+      left_join(
+        x$drivers %>% select(driver_name, mock_salary, finish_reliability, penalty_recovery_floor),
+        by = c("Name" = "driver_name")
+      ) %>%
+      filter(
+        mock_salary <= median(x$drivers$mock_salary, na.rm = TRUE),
+        penalty_recovery_floor <= 0,
+        candidate_lineups >= ceiling(0.50 * base_candidate_count),
+        !Name %in% x$premium_names
+      ) %>%
+      mutate(
+        contextual_fragility = candidate_lineups / pmax(base_candidate_count, 1) +
+          0.20 * (1 - coalesce(finish_reliability, 0.5))
+      ) %>%
+      arrange(desc(contextual_fragility), desc(candidate_lineups), Name) %>%
+      slice_head(n = 1L) %>%
+      pull(Name)
+    bottleneck_relief <- base_candidate_exposure %>%
+      filter(
+        !Name %in% c(ordinary_premium_relief, fragile_relief),
+        candidate_lineups >= ceiling(0.75 * base_candidate_count)
+      ) %>%
+      arrange(desc(candidate_lineups), Name) %>%
+      slice_head(n = 1L) %>%
+      pull(Name)
+    relief_exclusions <- unique(c(ordinary_premium_relief, fragile_relief, bottleneck_relief))
+    relief_captains <- setdiff(x$captain_pool$driver_name, relief_exclusions)
+    relief_constructors <- head(efficient_constructors, 4L)
+    relief_parts <- list()
+    if (length(relief_exclusions) > 0L && length(relief_captains) > 0L) {
+      for (constructor_name in relief_constructors) {
+        for (captain_name in relief_captains) {
+          candidate <- build_candidate(
+            x$robust_drivers, x$robust_constructors,
+            "Selector relief", "Exposure relief",
+            paste0("Exposure relief: fade ", paste(relief_exclusions, collapse = " + "), " / ", captain_name, " / ", constructor_name),
+            captain = captain_name,
+            constructor = constructor_name,
+            require_premium = TRUE,
+            architecture_weight = 0,
+            excluded_drivers = relief_exclusions
+          )
+          if (nrow(candidate) > 0L) relief_parts[[length(relief_parts) + 1L]] <- candidate
+          if (length(relief_parts) >= 8L) break
+        }
+        if (length(relief_parts) >= 8L) break
+      }
+    }
+    candidates <- bind_rows(candidates, bind_rows(relief_parts)) %>%
+      mutate(
+        FragileValueNames = paste(fragile_relief, collapse = "|"),
+        PremiumReliefNames = paste(ordinary_premium_relief, collapse = "|"),
+        BottleneckReliefNames = paste(bottleneck_relief, collapse = "|")
+      )
     validate(need(n_distinct(candidates$CandidateID) > 0L, "No Fantasy Lineup 3 candidates fit the current salary cap."))
 
     driver_lookup <- x$drivers %>% transmute(
@@ -11531,6 +11609,7 @@ server <- function(input, output, session) {
           first(Architecture) == "Hybrid A" & `Premium flex drivers` >= 2L ~ 8,
           first(Architecture) %in% c("Hybrid B", "Hybrid C") ~ 3,
           first(Source) == "Lineup 2" ~ 1,
+          first(Architecture) == "Exposure relief" ~ -10,
           TRUE ~ 0
         ),
         `Hybrid selection score` = `Robust projection` +
@@ -11559,7 +11638,10 @@ server <- function(input, output, session) {
   })
 
   fantasy3_portfolio <- reactive({
+    x <- fantasy3_inputs()
     candidates <- fantasy3_candidates()
+    fragile_value_names <- str_split(first(candidates$FragileValueNames), fixed("|"))[[1]]
+    fragile_value_names <- fragile_value_names[nzchar(fragile_value_names)]
     groups <- split(candidates, candidates$CandidateID)
     meta <- bind_rows(lapply(names(groups), function(id) {
       rows <- groups[[id]]
@@ -11575,6 +11657,7 @@ server <- function(input, output, session) {
         Ceiling = first(rows$`Ceiling projection`),
         Captain = rows$Name[rows$Slot == "CPT"][1],
         Constructor = rows$Name[rows$Slot == "CON"][1],
+        PrimaryEfficient = first(rows$`Primary efficient constructor`),
         Drivers = list(unique(rows$Name[rows$Slot %in% c("CPT", "DRV")])),
         Roster = list(roster),
         RosterKey = paste(
@@ -11590,6 +11673,16 @@ server <- function(input, output, session) {
     portfolio_size <- min(8L, nrow(meta))
     max_driver <- max(1L, ceiling(portfolio_size * pmin(100, pmax(25, as.numeric(input$fantasy3_driver_exposure %||% 75))) / 100))
     max_constructor <- max(1L, ceiling(portfolio_size * pmin(100, pmax(10, as.numeric(input$fantasy3_constructor_exposure %||% 50))) / 100))
+    constructor_efficiency_gap <- if (nrow(x$constructors) >= 2L) {
+      x$constructors$efficiency_score[[1]] - x$constructors$efficiency_score[[2]]
+    } else {
+      Inf
+    }
+    clear_constructor_advantage <- is.finite(constructor_efficiency_gap) && constructor_efficiency_gap >= 5
+    primary_constructor <- x$constructors$constructor_name[[1]]
+    primary_constructor_cap <- if (clear_constructor_advantage) min(6L, portfolio_size) else max_constructor
+    premium_driver_cap <- min(6L, max_driver)
+    fragile_driver_cap <- min(3L, max_driver)
     rule_tiers <- list(
       list(driver = max_driver, constructor = max_constructor, captain = 2L, overlap = 4L),
       list(driver = max_driver, constructor = max_constructor, captain = 2L, overlap = 5L),
@@ -11608,7 +11701,15 @@ server <- function(input, output, session) {
           driver_counts <- table(unlist(meta$Drivers[trial], use.names = FALSE))
           constructor_counts <- table(meta$Constructor[trial])
           captain_counts <- table(meta$Captain[trial])
-          if (max(driver_counts) > rules$driver || max(constructor_counts) > rules$constructor || max(captain_counts) > rules$captain) return(FALSE)
+          if (max(driver_counts) > rules$driver || max(captain_counts) > rules$captain) return(FALSE)
+          premium_counts <- driver_counts[intersect(names(driver_counts), x$premium_names)]
+          fragile_counts <- driver_counts[intersect(names(driver_counts), fragile_value_names)]
+          if (length(premium_counts) > 0L && max(premium_counts) > premium_driver_cap) return(FALSE)
+          if (length(fragile_counts) > 0L && max(fragile_counts) > fragile_driver_cap) return(FALSE)
+          primary_count <- coalesce(as.integer(constructor_counts[primary_constructor]), 0L)
+          alternate_counts <- constructor_counts[setdiff(names(constructor_counts), primary_constructor)]
+          if (primary_count > primary_constructor_cap) return(FALSE)
+          if (length(alternate_counts) > 0L && max(alternate_counts) > rules$constructor) return(FALSE)
           if (length(selected) > 0L) {
             overlaps <- vapply(selected, function(other) length(intersect(meta$Roster[[other]], meta$Roster[[index]])), integer(1))
             if (any(overlaps > rules$overlap)) return(FALSE)
@@ -11632,6 +11733,37 @@ server <- function(input, output, session) {
       }
       if (length(best_selected) == portfolio_size) break
     }
+    if (length(best_selected) < portfolio_size) {
+      hard_controls_valid <- function(trial) {
+        driver_counts <- table(unlist(meta$Drivers[trial], use.names = FALSE))
+        constructor_counts <- table(meta$Constructor[trial])
+        premium_counts <- driver_counts[intersect(names(driver_counts), x$premium_names)]
+        fragile_counts <- driver_counts[intersect(names(driver_counts), fragile_value_names)]
+        primary_count <- coalesce(as.integer(constructor_counts[primary_constructor]), 0L)
+        if (length(premium_counts) > 0L && max(premium_counts) > premium_driver_cap) return(FALSE)
+        if (length(fragile_counts) > 0L && max(fragile_counts) > fragile_driver_cap) return(FALSE)
+        if (primary_count > primary_constructor_cap) return(FALSE)
+        TRUE
+      }
+      find_complete_portfolio <- function(start_index = 1L, chosen = integer()) {
+        if (length(chosen) == portfolio_size) return(chosen)
+        needed <- portfolio_size - length(chosen)
+        last_start <- nrow(meta) - needed + 1L
+        if (start_index > last_start) return(NULL)
+        for (index in seq.int(start_index, last_start)) {
+          trial <- c(chosen, index)
+          if (!hard_controls_valid(trial)) next
+          found <- find_complete_portfolio(index + 1L, trial)
+          if (!is.null(found)) return(found)
+        }
+        NULL
+      }
+      complete_portfolio <- find_complete_portfolio()
+      if (!is.null(complete_portfolio)) {
+        best_selected <- complete_portfolio
+        best_tier <- length(rule_tiers) + 1L
+      }
+    }
     validate(need(length(best_selected) > 0L, "No distinct Fantasy Lineup 3 portfolio fits the current settings."))
     selected_meta <- meta[best_selected, ]
     ordered_selected <- integer()
@@ -11646,9 +11778,23 @@ server <- function(input, output, session) {
           }, integer(1)))
           captain_bonus <- 2 * as.numeric(!selected_meta$Captain[[index]] %in% selected_meta$Captain[ordered_selected])
           constructor_bonus <- 2 * as.numeric(!selected_meta$Constructor[[index]] %in% selected_meta$Constructor[ordered_selected])
+          best_five_constructor_adjustment <- if (length(ordered_selected) < 5L && clear_constructor_advantage) {
+            if (selected_meta$PrimaryEfficient[[index]]) 5 else -8
+          } else {
+            0
+          }
+          best_three_constructor_adjustment <- if (
+            length(ordered_selected) == 2L &&
+              !clear_constructor_advantage &&
+              n_distinct(selected_meta$Constructor[ordered_selected]) == 1L
+          ) {
+            if (selected_meta$Constructor[[index]] %in% selected_meta$Constructor[ordered_selected]) -50 else 10
+          } else {
+            0
+          }
           0.70 * selected_meta$SingleEntryScore[[index]] +
             0.30 * selected_meta$Score[[index]] +
-            captain_bonus + constructor_bonus - 1.25 * overlap_penalty
+            captain_bonus + constructor_bonus + best_five_constructor_adjustment + best_three_constructor_adjustment - 1.25 * overlap_penalty
         }, numeric(1))
         chosen <- remaining_selected[[which.max(incremental)]]
       }
@@ -11760,11 +11906,19 @@ server <- function(input, output, session) {
 
   output$fantasy3_driver_table <- renderTable({
     x <- fantasy3_inputs()
+    candidate_rows <- fantasy3_candidates()
+    fragile_names <- str_split(first(candidate_rows$FragileValueNames), fixed("|"))[[1]]
+    fragile_names <- fragile_names[nzchar(fragile_names)]
     x$drivers %>%
       left_join(x$captain_pool %>% select(driver_name, captain_tier), by = "driver_name") %>%
       transmute(
         Driver = driver_name, Constructor = constructor_name,
         Role = case_when(!is.na(captain_tier) ~ captain_tier, driver_name %in% x$premium_names ~ "Premium flex", TRUE ~ "Value/balanced flex"),
+        `Exposure guard` = case_when(
+          driver_name %in% fragile_names ~ "Contextual fragile value - 3 max",
+          driver_name %in% x$premium_names ~ "Ordinary premium - 6 max",
+          TRUE ~ "Standard portfolio cap"
+        ),
         Salary = paste0("$", format(round(mock_salary, 0), big.mark = ",")),
         `Robust DK` = format_num(robust_projection, 2), `Ceiling DK` = format_num(ceiling_projection, 2),
         Qualifying = format_int(qualifying_reference), `Official start` = format_int(official_start_reference),
@@ -11808,16 +11962,37 @@ server <- function(input, output, session) {
 
   output$fantasy3_audit_table <- renderTable({
     groups <- fantasy3_groups()
+    x <- fantasy3_inputs()
+    candidate_rows <- fantasy3_candidates()
+    fragile_names <- str_split(first(candidate_rows$FragileValueNames), fixed("|"))[[1]]
+    fragile_names <- fragile_names[nzchar(fragile_names)]
     captains <- vapply(groups, function(rows) rows$Name[rows$Slot == "CPT"][1], character(1))
     constructors <- vapply(groups, function(rows) rows$Name[rows$Slot == "CON"][1], character(1))
+    driver_counts <- table(unlist(lapply(groups, function(rows) unique(rows$Name[rows$Slot %in% c("CPT", "DRV")])), use.names = FALSE))
+    premium_counts <- driver_counts[intersect(names(driver_counts), x$premium_names)]
+    fragile_counts <- driver_counts[intersect(names(driver_counts), fragile_names)]
+    constructor_gap <- if (nrow(x$constructors) >= 2L) x$constructors$efficiency_score[[1]] - x$constructors$efficiency_score[[2]] else Inf
+    clear_constructor_advantage <- is.finite(constructor_gap) && constructor_gap >= 5
+    best_three_constructors <- unique(constructors[names(groups) %in% paste0("Entry ", 1:3)])
     rosters <- lapply(groups, function(rows) c(unique(rows$Name[rows$Slot %in% c("CPT", "DRV")]), rows$Name[rows$Slot == "CON"][1]))
     shared <- if (length(groups) < 2L) 0L else apply(combn(seq_along(groups), 2L), 2, function(pair) length(intersect(rosters[[pair[1]]], rosters[[pair[2]]])))
-    tibble(Check = c("Generated lineups", "Candidate sources represented", "Distinct captains", "Distinct constructors", "Maximum shared selections", "Exact duplicate lineups"),
+    tibble(Check = c(
+      "Generated lineups", "Candidate sources represented", "Distinct captains", "Distinct constructors",
+      "Maximum ordinary-premium exposure", "Maximum contextual-fragile exposure",
+      "Best 3 constructor rule", "Maximum shared selections", "Exact duplicate lineups"
+    ),
       Result = c(
         paste0(length(groups), " (maximum 8)"),
         n_distinct(vapply(groups, function(rows) first(rows$Source), character(1))),
         n_distinct(captains),
         n_distinct(constructors),
+        paste0(if (length(premium_counts) == 0L) 0L else max(premium_counts), " of 6"),
+        paste0(if (length(fragile_counts) == 0L) 0L else max(fragile_counts), " of 3"),
+        if (clear_constructor_advantage) {
+          paste0("Clear efficiency edge (+", format_num(constructor_gap, 1), "); concentration allowed")
+        } else {
+          paste0(length(best_three_constructors), " constructors; minimum 2")
+        },
         max(shared),
         anyDuplicated(vapply(seq_along(rosters), function(index) {
           paste(captains[[index]], paste(sort(rosters[[index]]), collapse = "|"), sep = "::")
