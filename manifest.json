@@ -3442,13 +3442,13 @@
       "checksum": "3d88e0e10058100c55454a80683a252b"
     },
     "app.R": {
-      "checksum": "58af730926d0dc96fe0d37c817509ac4"
+      "checksum": "4f97e69ff46ae9b44fecfbb4cc8a97ae"
     },
     "data/f1_current_sprint_facts_2018_2026.csv": {
       "checksum": "86d7b537a17250900e485309d4028dbd"
     },
     "data/f1_draftkings_salaries_current_2026.csv": {
-      "checksum": "4552c2e0118e37ebb85baae5e1bba207"
+      "checksum": "3752de925c0681bf3e9f7dac81033487"
     },
     "data/f1_dry_training_wet_race_exclusions_2018_2026.csv": {
       "checksum": "f61122a65f279ee90b01cdee377b9a67"
@@ -3457,7 +3457,7 @@
       "checksum": "601b7856bbc45dcac4210959de80b755"
     },
     "data/f1_market_odds_driver_summary_2025_2026.csv": {
-      "checksum": "eddf1968dd143cc4f722faf6fcde141b"
+      "checksum": "a67d43bb17c9fee5ef0d43484c574551"
     },
     "data/f1_prerace_grid_quali_overrides_2018_2026.csv": {
       "checksum": "2c84c14be467dad21341c99317a20d2e"
@@ -3466,52 +3466,52 @@
       "checksum": "153701e2e6fcc5f5b13c957beec23315"
     },
     "data/f1_stage1_driver_race_backbone_2018_2026.csv": {
-      "checksum": "cb678eb555400aa25495f81694509ae2"
+      "checksum": "5e556ce5be742c3a9be8cfe1334eb5d0"
     },
     "data/f1_stage11_xgb_finish_app_predictions_2018_2026.csv": {
-      "checksum": "eb27f7b845c31da154687f990bf26469"
+      "checksum": "b139544af420e146c8346f84c5144490"
     },
     "data/f1_stage12_xgb_probability_app_predictions_2018_2026.csv": {
-      "checksum": "a5f91a2f91d1a2d2b63ff5705d69f77e"
+      "checksum": "fe3052f37081688762fd78badfaa97e7"
     },
     "data/f1_stage13_xgb_points_app_predictions_2018_2026.csv": {
-      "checksum": "b1707131bf3b44aa39e403b246216762"
+      "checksum": "c4b56b8e40a67a77afcb2986d28fb75b"
     },
     "data/f1_stage17_xgb_winner_without_app_predictions_2018_2026.csv": {
-      "checksum": "c9e81e23c52461f696f3daf340444ac4"
+      "checksum": "fc84bff5ee4a3af9e30b6279ceb18453"
     },
     "data/f1_stage18_chatter_overlay_coefficients_2018_2026.csv": {
-      "checksum": "16172fe488af7ad493a74feeb706f4c8"
+      "checksum": "476ce1b76aff1f04b63b6996e34f63c9"
     },
     "data/f1_stage18_chatter_team_features_2018_2026.csv": {
-      "checksum": "780a0bf9215d243853fc8e3293852248"
+      "checksum": "7e8226097d01073af5739ed1c5602252"
     },
     "data/f1_stage18_qualifying_chatter_overlay_2018_2026.csv": {
-      "checksum": "825381b54cad3825b554f1b7a21f32fa"
+      "checksum": "5024cc73ef424bdaf7009599a898a87f"
     },
     "data/f1_stage18_xgb_finish_chatter_overlay_2018_2026.csv": {
-      "checksum": "55badd4bc7e88765938d9a5b14b1165a"
+      "checksum": "779e432e3b2ba60896babb2ad33c97c3"
     },
     "data/f1_stage18_xgb_points_chatter_overlay_2018_2026.csv": {
-      "checksum": "50bca11de1ee26dd7e07b187e5017677"
+      "checksum": "33a75897b38e0323688c6acfb0e69bce"
     },
     "data/f1_stage18_xgb_probability_chatter_overlay_2018_2026.csv": {
-      "checksum": "0b03d80990acf9edc476d9b9283c4a27"
+      "checksum": "22756ee6b97a4d2d7fde798c4dfb1659"
     },
     "data/f1_stage18_xgb_winner_without_chatter_overlay_2018_2026.csv": {
-      "checksum": "2455349231613b7b7bacf937afb44132"
+      "checksum": "c3471bd734c7458b6abacb5abc5c3b00"
     },
     "data/f1_stage19_fastest_lap_app_predictions_2018_2026.csv": {
-      "checksum": "8ba9096b754ac7f994d9cd0111e4c4a5"
+      "checksum": "869f1ebce98ac1fdb6cab69cbd805632"
     },
     "data/f1_stage5_track_profile_inventory_2018_2026.csv": {
-      "checksum": "3d59b95a692891e7a55ad8a0c1b10a7f"
+      "checksum": "50ff7f5bcaefcfb665dce98127f3515a"
     },
     "data/f1_stage6_future_prerace_estimates_2018_2026.csv": {
-      "checksum": "33992d8f09c7dd3eba659803e8f8f816"
+      "checksum": "0ef99b029aace586b10b9fbe3de1a433"
     },
     "data/f1_stage7_qualifying_app_predictions_2018_2026.csv": {
-      "checksum": "d031c14ced553fc105f97c853ec8122b"
+      "checksum": "6c23c5ddceb5c6b1f1ad7e3207a56bd9"
     },
     "data/f1_stage7_qualifying_hyperparameters_2018_2026_train2024_test2025.csv": {
       "checksum": "1da271867d703b575c97389269d5cee6"
@@ -3589,6 +3589,9 @@
       "checksum": "6d9d13b2b843c5148cee240013cf9b3c"
     },
     "data/f1_stage7_qualifying_hyperparameters_2018_2026_train2026_r1_test2026.csv": {
+      "checksum": "6d9d13b2b843c5148cee240013cf9b3c"
+    },
+    "data/f1_stage7_qualifying_hyperparameters_2018_2026_train2026_r10_test2026.csv": {
       "checksum": "6d9d13b2b843c5148cee240013cf9b3c"
     },
     "data/f1_stage7_qualifying_hyperparameters_2018_2026_train2026_r2_test2026.csv": {
@@ -3693,6 +3696,9 @@
     "data/f1_stage7_qualifying_linear_coefficients_2018_2026_train2026_r1_test2026.csv": {
       "checksum": "3b647fdd204297b8249dff23ec55a08f"
     },
+    "data/f1_stage7_qualifying_linear_coefficients_2018_2026_train2026_r10_test2026.csv": {
+      "checksum": "ca1755b8ed26e4a765879d349d1be3f0"
+    },
     "data/f1_stage7_qualifying_linear_coefficients_2018_2026_train2026_r2_test2026.csv": {
       "checksum": "e6cfe967b043c8715435cd3fbaeda044"
     },
@@ -3718,7 +3724,7 @@
       "checksum": "0f51381555bbf4fd61879fca0b5f5801"
     },
     "data/f1_stage7_qualifying_metrics_2018_2026_train2024_test2025.csv": {
-      "checksum": "6e816db377f8a988dc2f0299c50f1867"
+      "checksum": "89426123442d591694a7ab93dbf0544a"
     },
     "data/f1_stage7_qualifying_metrics_2018_2026_train2025_r1_test2025.csv": {
       "checksum": "6e816db377f8a988dc2f0299c50f1867"
@@ -3790,34 +3796,37 @@
       "checksum": "0d1ee9fd0dc0df01be6e8ee5680076c8"
     },
     "data/f1_stage7_qualifying_metrics_2018_2026_train2025_test2026.csv": {
-      "checksum": "7d587b4a2c63b5aae357941465124180"
+      "checksum": "e30b76107a76cabf98cf74bdd9325047"
     },
     "data/f1_stage7_qualifying_metrics_2018_2026_train2026_r1_test2026.csv": {
-      "checksum": "c2cda71da78c4b7f8dcc42a8ce15f1a3"
+      "checksum": "cf9d5b8fa857e1fc554d23ab5cc1bc6e"
+    },
+    "data/f1_stage7_qualifying_metrics_2018_2026_train2026_r10_test2026.csv": {
+      "checksum": "69b49e56519047ea7bc6ab0694895160"
     },
     "data/f1_stage7_qualifying_metrics_2018_2026_train2026_r2_test2026.csv": {
-      "checksum": "4b86f880409b28c432d1b79e4fa58f7f"
+      "checksum": "780b711b7f6b2699fed53020f501df17"
     },
     "data/f1_stage7_qualifying_metrics_2018_2026_train2026_r3_test2026.csv": {
-      "checksum": "0e88af7d2756d13e36353f431fa3d8a2"
+      "checksum": "50b74d4e042fd1bb296d0681f4343d4f"
     },
     "data/f1_stage7_qualifying_metrics_2018_2026_train2026_r4_test2026.csv": {
-      "checksum": "12ebbf88b60c50e8386a7acd7d09969b"
+      "checksum": "b5569261dc360856d81adb1af4d74cc6"
     },
     "data/f1_stage7_qualifying_metrics_2018_2026_train2026_r5_test2026.csv": {
-      "checksum": "12ebbf88b60c50e8386a7acd7d09969b"
+      "checksum": "b5569261dc360856d81adb1af4d74cc6"
     },
     "data/f1_stage7_qualifying_metrics_2018_2026_train2026_r6_test2026.csv": {
-      "checksum": "d7eaa9d88b09eebe732cce7558c4acfd"
+      "checksum": "d6dd55ef373188bba1d92881cba3f0f2"
     },
     "data/f1_stage7_qualifying_metrics_2018_2026_train2026_r7_test2026.csv": {
-      "checksum": "bfcabce45cb6b2303ce6ec12596dd0a7"
+      "checksum": "7a53135ac0ef6452ab20f3fae582313f"
     },
     "data/f1_stage7_qualifying_metrics_2018_2026_train2026_r8_test2026.csv": {
-      "checksum": "cd48be9c4ad8aedcc1eb9de58894a3f0"
+      "checksum": "9583ffcfb1d33efa1181561a1640cf50"
     },
     "data/f1_stage7_qualifying_metrics_2018_2026_train2026_r9_test2026.csv": {
-      "checksum": "11286e2be7493b5dd6bec26a71c03d06"
+      "checksum": "0196e18d59cb17b97085e098072a34b3"
     },
     "data/f1_stage9_consensus_bets_2018_2026.csv": {
       "checksum": "88a14ee6bf2bef59921e795da3a45f7d"
@@ -3832,13 +3841,19 @@
       "checksum": "11bca5ab989cd41aaf3e83345f0656c5"
     },
     "data/keep these files/f1_current_driver_weekend_signals_2018_2026.csv": {
-      "checksum": "12b78f7cb518fc29e1c34e970c87653c"
+      "checksum": "a01c12db9fe214d035a4e025f4d88b57"
     },
     "data/keep these files/f1_current_sprint_facts_2018_2026.csv": {
       "checksum": "309e88b8ebfdce48ebe66fe75652e0d0"
     },
+    "data/keep these files/f1_draftkings_salaries_2026_r10_belgian.csv": {
+      "checksum": "e4fb293df604f74fff533fb4d8fb385d"
+    },
+    "data/keep these files/f1_draftkings_salaries_2026_r11_hungarian.csv": {
+      "checksum": "ac18c34c4464ce5fa2b44a320850369c"
+    },
     "data/keep these files/f1_market_odds_driver_summary_supplied_2025_2026.csv": {
-      "checksum": "86d64f6550c073423153a5cc779d7003"
+      "checksum": "dbbe1a718deef9a98569809dbf337ffd"
     },
     "data/keep these files/f1_market_odds_driver_summary_supplied_2025_2026_backup_before_r10_opening_move_20260713_174405.csv": {
       "checksum": "07ad072fa020d45ae5c26c05e87e2058"
@@ -3847,13 +3862,13 @@
       "checksum": "01e54e2f5daa97420873ceaaa0f27c13"
     },
     "data/keep these files/f1_market_odds_opening_driver_summary_2025_2026.csv": {
-      "checksum": "a8787c9b31800fd4ee030b17d1f35803"
+      "checksum": "8b6bd0f8e98c6137f2cb9fbf4e4c411d"
     },
     "data/keep these files/f1_market_odds_opening_driver_summary_2025_2026_backup_before_r10_opening_move_20260713_174405.csv": {
       "checksum": "ac0cbd9ccbcf4ad115a82803930f5988"
     },
     "data/keep these files/f1_prerace_chatter_team_race_signals_2018_2026.csv": {
-      "checksum": "db6225f04b4ecbc0099adb2b44aaf4a6"
+      "checksum": "2e7c518e73239b29f80c81ad8f7f1428"
     },
     "data/keep these files/f1_prerace_grid_quali_overrides_2018_2026.csv": {
       "checksum": "2c84c14be467dad21341c99317a20d2e"
