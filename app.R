@@ -4020,7 +4020,7 @@ ui <- fluidPage(
                 class = "panel",
                 div(
                   style = "display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;",
-                  h2(style = "margin-bottom:0;", "Best 1 / Best 3 / Best 5 / Up to 8"),
+                  uiOutput("fantasy3_portfolio_title"),
                   downloadButton("fantasy3_portfolio_download", "Download selected portfolio (CSV)")
                 ),
                 p(class = "hint", "Original, Lineup 2, and Hybrid A/B/C candidates compete for every position. No source receives a reserved entry."),
@@ -11487,12 +11487,20 @@ server <- function(input, output, session) {
     driver_lookup <- x$drivers %>% transmute(
       AssetType = "Driver", Name = driver_name,
       RobustEvaluation = robust_projection,
-      CeilingEvaluation = ceiling_projection
+      CeilingEvaluation = ceiling_projection,
+      CaptainFitLookup = captain_fit_score,
+      ValuePathLookup = value_path_score,
+      ConstructorEfficiencyLookup = NA_real_,
+      PrimaryEfficientLookup = FALSE
     )
     constructor_lookup <- x$constructors %>% transmute(
       AssetType = "Constructor", Name = constructor_name,
       RobustEvaluation = robust_projection,
-      CeilingEvaluation = ceiling_projection
+      CeilingEvaluation = ceiling_projection,
+      CaptainFitLookup = NA_real_,
+      ValuePathLookup = NA_real_,
+      ConstructorEfficiencyLookup = efficiency_score,
+      PrimaryEfficientLookup = constructor_name == first(x$constructors$constructor_name)
     )
     bind_rows(driver_lookup, constructor_lookup) %>%
       right_join(candidates %>% mutate(AssetType = if_else(Slot == "CON", "Constructor", "Driver")), by = c("AssetType", "Name")) %>%
@@ -11506,10 +11514,32 @@ server <- function(input, output, session) {
         `Robust projection` = sum(RobustEvaluation, na.rm = TRUE),
         `Ceiling projection` = sum(CeilingEvaluation, na.rm = TRUE),
         `Premium flex drivers` = sum(PremiumFlex),
+        `Captain fit` = first(CaptainFitLookup[Slot == "CPT"]),
+        `Constructor efficiency` = first(ConstructorEfficiencyLookup[Slot == "CON"]),
+        `Weakest flex value path` = min(ValuePathLookup[Slot == "DRV"], na.rm = TRUE),
+        `Primary efficient constructor` = first(PrimaryEfficientLookup[Slot == "CON"]),
+        `Architecture quality bonus` = case_when(
+          first(Architecture) == "Hybrid A" & `Premium flex drivers` >= 2L ~ 8,
+          first(Architecture) %in% c("Hybrid B", "Hybrid C") ~ 3,
+          first(Source) == "Lineup 2" ~ 1,
+          TRUE ~ 0
+        ),
         `Hybrid selection score` = `Robust projection` +
           0.22 * (`Ceiling projection` - `Robust projection`) +
+          0.04 * coalesce(`Captain fit`, 0) +
+          0.04 * coalesce(`Constructor efficiency`, 0) +
+          0.02 * coalesce(`Weakest flex value path`, 0) +
           1.5 * `Premium flex drivers` +
-          2 * ArchitectureWeight
+          2 * ArchitectureWeight +
+          `Architecture quality bonus`,
+        `Single-entry hybrid score` = `Robust projection` +
+          0.25 * (`Ceiling projection` - `Robust projection`) +
+          0.10 * coalesce(`Captain fit`, 0) +
+          0.08 * coalesce(`Constructor efficiency`, 0) +
+          0.03 * coalesce(`Weakest flex value path`, 0) +
+          2 * `Premium flex drivers` +
+          `Architecture quality bonus` +
+          5 * as.numeric(`Primary efficient constructor`)
       ) %>%
       ungroup() %>%
       select(-AssetType, -RobustEvaluation, -CeilingEvaluation, -PremiumFlex)
@@ -11527,13 +11557,18 @@ server <- function(input, output, session) {
         Architecture = first(rows$Architecture),
         Candidate = first(rows$Candidate),
         Score = first(rows$`Hybrid selection score`),
+        SingleEntryScore = first(rows$`Single-entry hybrid score`),
         Robust = first(rows$`Robust projection`),
         Ceiling = first(rows$`Ceiling projection`),
         Captain = rows$Name[rows$Slot == "CPT"][1],
         Constructor = rows$Name[rows$Slot == "CON"][1],
         Drivers = list(unique(rows$Name[rows$Slot %in% c("CPT", "DRV")])),
         Roster = list(roster),
-        RosterKey = paste(sort(roster), collapse = "|")
+        RosterKey = paste(
+          rows$Name[rows$Slot == "CPT"][1],
+          paste(sort(roster), collapse = "|"),
+          sep = "::"
+        )
       )
     })) %>%
       arrange(desc(Score), desc(Ceiling), Candidate) %>%
@@ -11545,7 +11580,8 @@ server <- function(input, output, session) {
     rule_tiers <- list(
       list(driver = max_driver, constructor = max_constructor, captain = 2L, overlap = 4L),
       list(driver = max_driver, constructor = max_constructor, captain = 2L, overlap = 5L),
-      list(driver = portfolio_size, constructor = portfolio_size, captain = 3L, overlap = 5L)
+      list(driver = portfolio_size, constructor = portfolio_size, captain = 3L, overlap = 5L),
+      list(driver = portfolio_size, constructor = portfolio_size, captain = portfolio_size, overlap = 6L)
     )
     best_selected <- integer()
     best_tier <- NA_integer_
@@ -11584,7 +11620,29 @@ server <- function(input, output, session) {
       if (length(best_selected) == portfolio_size) break
     }
     validate(need(length(best_selected) > 0L, "No distinct Fantasy Lineup 3 portfolio fits the current settings."))
-    selected_meta <- meta[best_selected, ] %>%
+    selected_meta <- meta[best_selected, ]
+    ordered_selected <- integer()
+    remaining_selected <- seq_len(nrow(selected_meta))
+    while (length(remaining_selected) > 0L) {
+      if (length(ordered_selected) == 0L) {
+        chosen <- remaining_selected[[which.max(selected_meta$SingleEntryScore[remaining_selected])]]
+      } else {
+        incremental <- vapply(remaining_selected, function(index) {
+          overlap_penalty <- sum(vapply(ordered_selected, function(other) {
+            length(intersect(selected_meta$Roster[[other]], selected_meta$Roster[[index]]))
+          }, integer(1)))
+          captain_bonus <- 2 * as.numeric(!selected_meta$Captain[[index]] %in% selected_meta$Captain[ordered_selected])
+          constructor_bonus <- 2 * as.numeric(!selected_meta$Constructor[[index]] %in% selected_meta$Constructor[ordered_selected])
+          0.70 * selected_meta$SingleEntryScore[[index]] +
+            0.30 * selected_meta$Score[[index]] +
+            captain_bonus + constructor_bonus - 1.25 * overlap_penalty
+        }, numeric(1))
+        chosen <- remaining_selected[[which.max(incremental)]]
+      }
+      ordered_selected <- c(ordered_selected, chosen)
+      remaining_selected <- setdiff(remaining_selected, chosen)
+    }
+    selected_meta <- selected_meta[ordered_selected, ] %>%
       mutate(
         `Combined lineup` = paste0("Entry ", row_number()),
         `Portfolio tier` = case_when(
@@ -11698,6 +11756,14 @@ server <- function(input, output, session) {
     )
   }, striped = TRUE, hover = TRUE, bordered = FALSE)
 
+  output$fantasy3_portfolio_title <- renderUI({
+    lineup_count <- n_distinct(fantasy3_portfolio()$`Combined lineup`)
+    h2(
+      style = "margin-bottom:0;",
+      paste0("Best 1 / Best 3 / Best 5 / Full ", lineup_count)
+    )
+  })
+
   output$fantasy3_portfolio_table <- renderTable({
     fantasy3_portfolio() %>% transmute(`Combined lineup`, `Portfolio tier`, Source, Architecture, Slot, Name, Constructor,
       Salary = paste0("$", format(round(Salary, 0), big.mark = ",")), Projection = format_num(Projection, 2), `Value / $1k` = format_num(Value, 2))
@@ -11719,7 +11785,17 @@ server <- function(input, output, session) {
     rosters <- lapply(groups, function(rows) c(unique(rows$Name[rows$Slot %in% c("CPT", "DRV")]), rows$Name[rows$Slot == "CON"][1]))
     shared <- if (length(groups) < 2L) 0L else apply(combn(seq_along(groups), 2L), 2, function(pair) length(intersect(rosters[[pair[1]]], rosters[[pair[2]]])))
     tibble(Check = c("Generated lineups", "Candidate sources represented", "Distinct captains", "Distinct constructors", "Maximum shared selections", "Exact duplicate lineups"),
-      Result = c(paste0(length(groups), " (maximum 8)"), n_distinct(vapply(groups, function(rows) first(rows$Source), character(1))), n_distinct(captains), n_distinct(constructors), max(shared), anyDuplicated(vapply(rosters, function(roster) paste(sort(roster), collapse = "|"), character(1)))))
+      Result = c(
+        paste0(length(groups), " (maximum 8)"),
+        n_distinct(vapply(groups, function(rows) first(rows$Source), character(1))),
+        n_distinct(captains),
+        n_distinct(constructors),
+        max(shared),
+        anyDuplicated(vapply(seq_along(rosters), function(index) {
+          paste(captains[[index]], paste(sort(rosters[[index]]), collapse = "|"), sep = "::")
+        }, character(1)))
+      )
+    )
   }, striped = TRUE, hover = TRUE, bordered = FALSE)
 
   output$fantasy3_exposure_table <- renderTable({
@@ -11745,7 +11821,10 @@ server <- function(input, output, session) {
   }, striped = TRUE, hover = TRUE, bordered = FALSE)
 
   output$fantasy3_portfolio_download <- downloadHandler(
-    filename = function() paste0("f1_fantasy3_hybrid_portfolio_", input$fantasy3_season, "_R", input$fantasy3_round, ".csv"),
+    filename = function() {
+      lineup_count <- n_distinct(fantasy3_portfolio()$`Combined lineup`)
+      paste0("f1_fantasy3_hybrid_full", lineup_count, "_", input$fantasy3_season, "_R", input$fantasy3_round, ".csv")
+    },
     content = function(file) write_csv(fantasy3_portfolio(), file, na = "")
   )
 
