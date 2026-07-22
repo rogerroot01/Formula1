@@ -11225,6 +11225,11 @@ server <- function(input, output, session) {
         ceiling_projection = pmax(baseline_projection, chatter_projection),
         robust_value = robust_projection / mock_salary * 1000,
         captain_value = ceiling_projection / (mock_salary * 1.5) * 1000,
+        qualifying_reference = coalesce(display_quali_position, projected_start),
+        official_start_reference = coalesce(display_start_position, projected_start),
+        grid_penalty_places = pmax(official_start_reference - qualifying_reference, 0),
+        grid_penalty_flag = grid_penalty_places > 0,
+        penalty_recovery_floor = grid_penalty_places,
         place_diff_ceiling = pmax(coalesce(dk_place_diff, 0), coalesce(chatter_place_diff, 0)),
         finish_upside = 21 - pmin(coalesce(projected_finish, 20), coalesce(chatter_finish, 20)),
         finish_reliability = pmin(1, pmax(0, rowMeans(cbind(coalesce(projected_classified_points, 0), coalesce(chatter_classified, 0))))),
@@ -11250,7 +11255,7 @@ server <- function(input, output, session) {
           0.16 * teammate_pct +
           0.14 * percent_rank(finish_reliability) +
           0.10 * finish_pct
-        ),
+        ) + 1.5 * penalty_recovery_floor,
         captain_fit_score = 100 * (
           0.30 * captain_value_pct +
           0.20 * place_diff_pct +
@@ -11258,7 +11263,7 @@ server <- function(input, output, session) {
           0.15 * finish_pct +
           0.10 * chatter_pct +
           0.10 * volatility_pct
-        )
+        ) + 2.0 * penalty_recovery_floor
       )
 
     premium_salary_cutoff <- quantile(drivers$mock_salary, 0.75, na.rm = TRUE, names = FALSE, type = 1)
@@ -11490,6 +11495,7 @@ server <- function(input, output, session) {
       CeilingEvaluation = ceiling_projection,
       CaptainFitLookup = captain_fit_score,
       ValuePathLookup = value_path_score,
+      GridPenaltyLookup = penalty_recovery_floor,
       ConstructorEfficiencyLookup = NA_real_,
       PrimaryEfficientLookup = FALSE
     )
@@ -11499,6 +11505,7 @@ server <- function(input, output, session) {
       CeilingEvaluation = ceiling_projection,
       CaptainFitLookup = NA_real_,
       ValuePathLookup = NA_real_,
+      GridPenaltyLookup = NA_real_,
       ConstructorEfficiencyLookup = efficiency_score,
       PrimaryEfficientLookup = constructor_name == first(x$constructors$constructor_name)
     )
@@ -11515,6 +11522,8 @@ server <- function(input, output, session) {
         `Ceiling projection` = sum(CeilingEvaluation, na.rm = TRUE),
         `Premium flex drivers` = sum(PremiumFlex),
         `Captain fit` = first(CaptainFitLookup[Slot == "CPT"]),
+        `Captain grid-penalty floor` = first(GridPenaltyLookup[Slot == "CPT"]),
+        `Lineup grid-penalty floor` = sum(GridPenaltyLookup[Slot %in% c("CPT", "DRV")], na.rm = TRUE),
         `Constructor efficiency` = first(ConstructorEfficiencyLookup[Slot == "CON"]),
         `Weakest flex value path` = min(ValuePathLookup[Slot == "DRV"], na.rm = TRUE),
         `Primary efficient constructor` = first(PrimaryEfficientLookup[Slot == "CON"]),
@@ -11527,6 +11536,8 @@ server <- function(input, output, session) {
         `Hybrid selection score` = `Robust projection` +
           0.22 * (`Ceiling projection` - `Robust projection`) +
           0.04 * coalesce(`Captain fit`, 0) +
+          0.50 * coalesce(`Captain grid-penalty floor`, 0) +
+          0.35 * coalesce(`Lineup grid-penalty floor`, 0) +
           0.04 * coalesce(`Constructor efficiency`, 0) +
           0.02 * coalesce(`Weakest flex value path`, 0) +
           1.5 * `Premium flex drivers` +
@@ -11535,6 +11546,8 @@ server <- function(input, output, session) {
         `Single-entry hybrid score` = `Robust projection` +
           0.25 * (`Ceiling projection` - `Robust projection`) +
           0.10 * coalesce(`Captain fit`, 0) +
+          1.00 * coalesce(`Captain grid-penalty floor`, 0) +
+          0.35 * coalesce(`Lineup grid-penalty floor`, 0) +
           0.08 * coalesce(`Constructor efficiency`, 0) +
           0.03 * coalesce(`Weakest flex value path`, 0) +
           2 * `Premium flex drivers` +
@@ -11675,10 +11688,20 @@ server <- function(input, output, session) {
   output$fantasy3_header <- renderUI({
     x <- fantasy3_inputs()
     race <- x$baseline %>% distinct(season, round, race_name) %>% slice(1)
+    penalty_flags <- x$drivers %>% filter(grid_penalty_flag) %>% arrange(desc(grid_penalty_places))
+    penalty_note <- if (nrow(penalty_flags) == 0L) {
+      "No qualifying-to-grid penalty recovery flags are active."
+    } else {
+      paste0(
+        "Grid-penalty recovery flags: ",
+        paste0(penalty_flags$driver_name, " +", format_int(penalty_flags$grid_penalty_places), collapse = ", "),
+        "."
+      )
+    }
     div(class = "event-header", div(class = "event-title-block",
       div(class = "eyebrow", paste0(race$season, " Round ", race$round, " · Hybrid construction engine")),
       h1(race$race_name),
-      p(paste0("Primary efficient constructor: ", first(x$constructors$constructor_name), ". Hybrid captain pool: ", paste(x$captain_pool$driver_name, collapse = ", "), "."))
+      p(paste0("Primary efficient constructor: ", first(x$constructors$constructor_name), ". Hybrid captain pool: ", paste(x$captain_pool$driver_name, collapse = ", "), ". ", penalty_note))
     ))
   })
 
@@ -11693,6 +11716,7 @@ server <- function(input, output, session) {
     rows %>% summarise(
       Source = first(Source), Architecture = first(Architecture), Captain = Name[Slot == "CPT"][1], Constructor = Name[Slot == "CON"][1],
       `Premium flex` = first(`Premium flex drivers`),
+      `Captain penalty floor` = first(`Captain grid-penalty floor`),
       `Total salary` = paste0("$", format(round(first(total_salary), 0), big.mark = ",")),
       `Robust DK` = format_num(first(`Robust projection`), 2), `Ceiling DK` = format_num(first(`Ceiling projection`), 2)
     )
@@ -11743,6 +11767,8 @@ server <- function(input, output, session) {
         Role = case_when(!is.na(captain_tier) ~ captain_tier, driver_name %in% x$premium_names ~ "Premium flex", TRUE ~ "Value/balanced flex"),
         Salary = paste0("$", format(round(mock_salary, 0), big.mark = ",")),
         `Robust DK` = format_num(robust_projection, 2), `Ceiling DK` = format_num(ceiling_projection, 2),
+        Qualifying = format_int(qualifying_reference), `Official start` = format_int(official_start_reference),
+        `Grid penalty` = format_int(grid_penalty_places), `Penalty recovery floor` = format_num(penalty_recovery_floor, 1),
         `Place diff ceiling` = format_num(place_diff_ceiling, 2), `Teammate edge` = format_num(teammate_edge, 2),
         `Captain fit` = format_num(captain_fit_score, 1), `Value-path score` = format_num(value_path_score, 1)
       ) %>% arrange(desc(as.numeric(`Captain fit`)), desc(as.numeric(`Robust DK`)))
@@ -11751,6 +11777,7 @@ server <- function(input, output, session) {
   output$fantasy3_portfolio_summary_table <- renderTable({
     fantasy3_portfolio() %>% group_by(`Combined lineup`, `Portfolio tier`, Source, Architecture, Candidate) %>% summarise(
       Captain = Name[Slot == "CPT"][1], Constructor = Name[Slot == "CON"][1], `Premium flex` = first(`Premium flex drivers`),
+      `Captain penalty floor` = first(`Captain grid-penalty floor`),
       `Total salary` = paste0("$", format(round(first(total_salary), 0), big.mark = ",")),
       `Robust DK` = format_num(first(`Robust projection`), 2), `Ceiling DK` = format_num(first(`Ceiling projection`), 2), .groups = "drop"
     )
@@ -11770,8 +11797,9 @@ server <- function(input, output, session) {
   }, striped = TRUE, hover = TRUE, bordered = FALSE)
 
   output$fantasy3_candidate_table <- renderTable({
-    fantasy3_candidates() %>% distinct(CandidateID, Source, Architecture, Candidate, `Premium flex drivers`, total_salary, `Robust projection`, `Ceiling projection`, `Hybrid selection score`) %>%
+    fantasy3_candidates() %>% distinct(CandidateID, Source, Architecture, Candidate, `Premium flex drivers`, `Captain grid-penalty floor`, total_salary, `Robust projection`, `Ceiling projection`, `Hybrid selection score`) %>%
       arrange(desc(`Hybrid selection score`)) %>% transmute(Source, Architecture, Candidate, `Premium flex` = `Premium flex drivers`,
+        `Captain penalty floor` = `Captain grid-penalty floor`,
         Salary = paste0("$", format(round(total_salary, 0), big.mark = ",")), `Robust DK` = format_num(`Robust projection`, 2),
         `Ceiling DK` = format_num(`Ceiling projection`, 2), Score = format_num(`Hybrid selection score`, 2))
   }, striped = TRUE, hover = TRUE, bordered = FALSE)
