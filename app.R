@@ -3909,12 +3909,12 @@ ui <- fluidPage(
           )
         ),
         tabPanel(
-          "Fantasy Projections 2",
+          "Fantasy Lineup 2",
           div(
             class = "tree-tab-layout",
             div(
               class = "tree-controls",
-              h1("Fantasy Projections 2"),
+              h1("Fantasy Lineup 2"),
               selectInput(
                 "fantasy2_season",
                 "Season",
@@ -3955,7 +3955,7 @@ ui <- fluidPage(
                 div(
                   style = "display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;",
                   h2(style = "margin-bottom:0;", "Best 1 / Best 3 / Best 5 / Full 8"),
-                  downloadButton("fantasy2_combined_download", "Download all eight (CSV)")
+                  downloadButton("fantasy2_combined_download", "Download generated lineups (CSV)")
                 ),
                 p(class = "hint", "Entry 1 is the strongest robust lineup. The full portfolio preserves the constructor-first and captain-value rules while evaluating both Baseline and Chatter."),
                 tableOutput("fantasy2_combined_summary_table"),
@@ -3964,7 +3964,7 @@ ui <- fluidPage(
               div(class = "panel", h2("Portfolio Diversification Audit"), tableOutput("fantasy2_portfolio_audit_table")),
               div(class = "panel", h2("Portfolio Exposure"), tableOutput("fantasy2_portfolio_exposure_table")),
               div(class = "panel", h2("Pairwise Lineup Overlap"), tableOutput("fantasy2_portfolio_overlap_table")),
-              div(class = "panel", h2("Candidate Preview — A through H"), downloadButton("fantasy2_portfolio_download", "Download preview A–H (CSV)"), tableOutput("fantasy2_portfolio_table"))
+              div(class = "panel", h2("Candidate Preview — Up to Eight"), downloadButton("fantasy2_portfolio_download", "Download generated preview (CSV)"), tableOutput("fantasy2_portfolio_table"))
             )
           )
         ),
@@ -10463,8 +10463,7 @@ server <- function(input, output, session) {
     constructor_names <- constructor_rows$constructor_name
     primary_constructor <- strategy$primary_constructor
     alternate_constructors <- setdiff(constructor_names, primary_constructor)
-    if (primary_target < portfolio_size && length(alternate_constructors) == 0L) return(tibble())
-    alternate_slots <- portfolio_size - primary_target
+    alternate_slots <- if (length(alternate_constructors) == 0L) 0L else portfolio_size - primary_target
     alternate_rows <- constructor_rows %>%
       filter(constructor_name != .env$primary_constructor) %>%
       arrange(desc(fit_score), projection_rank, constructor_name)
@@ -10475,7 +10474,7 @@ server <- function(input, output, session) {
       eligible <- if (nrow(unused) > 0L) unused else alternate_rows %>%
         filter(alternate_counts[constructor_name] < portfolio_exposure_limit) %>%
         arrange(projection_rank, desc(fit_score), constructor_name)
-      if (nrow(eligible) == 0L) return(tibble())
+      if (nrow(eligible) == 0L) break
       selected_constructor <- eligible$constructor_name[[1]]
       alternate_targets <- c(alternate_targets, selected_constructor)
       alternate_counts[[selected_constructor]] <- alternate_counts[[selected_constructor]] + 1L
@@ -10484,6 +10483,8 @@ server <- function(input, output, session) {
       rep(primary_constructor, primary_target),
       if (primary_target < portfolio_size) alternate_targets else character()
     )
+    portfolio_size <- length(constructor_targets)
+    if (portfolio_size == 0L) return(tibble())
     captain_names <- strategy$captain_names
     if (length(captain_names) == 0L || length(strategy$elite_flex_names) == 0L) return(tibble())
     build_constructor_options <- function(constructor_name) {
@@ -10526,13 +10527,22 @@ server <- function(input, output, session) {
     }
 
     constructor_option_cache <- setNames(
-      lapply(unique(constructor_targets), build_constructor_options),
-      unique(constructor_targets)
+      lapply(constructor_names, build_constructor_options),
+      constructor_names
     )
-    if (any(lengths(constructor_option_cache) == 0L)) return(tibble())
+    feasible_constructors <- names(constructor_option_cache)[lengths(constructor_option_cache) > 0L]
+    if (length(feasible_constructors) == 0L) return(tibble())
+    # A constructor can pass the projection/value gate but still be impossible under
+    # the salary cap with every eligible captain. Replace only those impossible slots
+    # with the next-best feasible constructor instead of discarding the portfolio.
+    constructor_targets <- vapply(seq_along(constructor_targets), function(index) {
+      target <- constructor_targets[[index]]
+      if (target %in% feasible_constructors) target else feasible_constructors[[1L + ((index - 1L) %% length(feasible_constructors))]]
+    }, character(1))
 
     select_with_beam <- function(max_shared) {
       states <- list(list(options = list(), captains = character(), drivers = character(), rosters = list(), keys = character(), score = 0))
+      best_partial <- states[[1]]
       for (lineup_index in seq_len(portfolio_size)) {
         slot_options <- constructor_option_cache[[constructor_targets[[lineup_index]]]]
         next_states <- list()
@@ -10558,13 +10568,14 @@ server <- function(input, output, session) {
             )
           }
         }
-        if (length(next_states) == 0L) return(NULL)
+        if (length(next_states) == 0L) return(best_partial)
         state_scores <- vapply(next_states, function(state) {
           driver_counts <- table(state$drivers)
           state$score + 3 * n_distinct(state$captains) - 6 * sum(pmax(as.numeric(driver_counts) - 3, 0)^2)
         }, numeric(1))
         keep <- order(state_scores, decreasing = TRUE)[seq_len(min(300L, length(state_scores)))]
         states <- next_states[keep]
+        best_partial <- states[[1]]
       }
       states[[1]]
     }
@@ -10572,16 +10583,20 @@ server <- function(input, output, session) {
     requested_changes <- as.integer(input$fantasy2_min_major_changes %||% 2L)
     overlap_tiers <- unique(c(max(2L, 6L - requested_changes), 4L, 5L))
     selected_state <- NULL
+    best_option_count <- 0L
     selected_tier <- NA_integer_
     for (tier in seq_along(overlap_tiers)) {
-      selected_state <- select_with_beam(overlap_tiers[[tier]])
-      if (!is.null(selected_state)) {
+      tier_state <- select_with_beam(overlap_tiers[[tier]])
+      if (!is.null(tier_state) && length(tier_state$options) > best_option_count) {
+        selected_state <- tier_state
+        best_option_count <- length(tier_state$options)
         selected_tier <- tier
-        break
+        if (best_option_count == portfolio_size) break
       }
     }
-    if (is.null(selected_state)) return(tibble())
-    bind_rows(lapply(seq_len(portfolio_size), function(lineup_index) {
+    if (is.null(selected_state) || length(selected_state$options) == 0L) return(tibble())
+    lineup_count <- length(selected_state$options)
+    bind_rows(lapply(seq_len(lineup_count), function(lineup_index) {
       selected_state$options[[lineup_index]]$rows %>%
         mutate(
           Lineup = labels[[lineup_index]],
@@ -10606,8 +10621,10 @@ server <- function(input, output, session) {
   })
 
   fantasy2_portfolio_lineups <- reactive({
-    rows <- if (isTRUE(input$fantasy2_use_chatter)) fantasy2_chatter_portfolio() else fantasy2_baseline_portfolio()
-    validate(need(n_distinct(rows$Lineup) == 8L, "The experimental rules could not produce eight valid lineups under the current cap and exposure settings."))
+    preferred <- if (isTRUE(input$fantasy2_use_chatter)) fantasy2_chatter_portfolio() else fantasy2_baseline_portfolio()
+    alternate <- if (isTRUE(input$fantasy2_use_chatter)) fantasy2_baseline_portfolio() else fantasy2_chatter_portfolio()
+    rows <- if (n_distinct(preferred$Lineup) > 0L) preferred else alternate
+    validate(need(n_distinct(rows$Lineup) > 0L, "No plausible experimental lineup fits the current salary cap and captain rules."))
     rows
   })
 
@@ -10620,7 +10637,7 @@ server <- function(input, output, session) {
       fantasy2_chatter_portfolio(),
       fantasy2_baseline_portfolio()
     ) %>% mutate(CandidateID = paste(Source, Lineup, sep = "::"), .before = 1)
-    validate(need(n_distinct(candidate_rows$CandidateID) == 16L, "Both projection modes must produce all eight experimental candidates."))
+    validate(need(n_distinct(candidate_rows$CandidateID) > 0L, "Neither projection mode produced a plausible experimental candidate."))
     projection_lookup <- function(driver_rows, constructor_rows, value_name) {
       bind_rows(
         driver_rows %>% transmute(AssetType = "Driver", Name = driver_name, Evaluation = fantasy_projection),
@@ -10667,47 +10684,56 @@ server <- function(input, output, session) {
         Roster = list(c(unique(x$Name[x$Slot %in% c("CPT", "DRV")]), x$Name[x$Slot == "CON"][1]))
       )
     }))
-    labels <- LETTERS[1:8]
-    choice_grid <- expand.grid(rep(list(c("Baseline", "Chatter")), 8L), stringsAsFactors = FALSE)
+    labels <- intersect(LETTERS[1:8], unique(meta$ScenarioKey))
+    validate(need(length(labels) > 0L, "No candidate scenarios are available."))
+    source_choices <- lapply(labels, function(label) c("", unique(meta$Source[meta$ScenarioKey == label])))
+    choice_grid <- expand.grid(source_choices, stringsAsFactors = FALSE)
+    candidate_lookup <- setNames(meta$CandidateID, paste(meta$ScenarioKey, meta$Source, sep = "::"))
     max_driver_entries <- max(1L, ceiling(8L * pmin(100, pmax(25, as.numeric(input$fantasy2_driver_exposure %||% 75))) / 100))
     max_constructor_entries <- max(1L, ceiling(8L * pmin(100, pmax(10, as.numeric(input$fantasy2_constructor_exposure %||% 50))) / 100))
     best_ids <- character()
+    best_count <- 0L
     best_score <- -Inf
     selection_tiers <- list(
-      list(min_source = 3L, max_shared = 4L),
-      list(min_source = 1L, max_shared = 4L),
-      list(min_source = 0L, max_shared = 5L)
+      list(max_shared = 4L, captain_limit = 2L, driver_limit = max_driver_entries, constructor_limit = max_constructor_entries),
+      list(max_shared = 5L, captain_limit = 2L, driver_limit = max_driver_entries, constructor_limit = max_constructor_entries),
+      list(max_shared = 5L, captain_limit = 3L, driver_limit = 8L, constructor_limit = 8L)
     )
     selected_tier <- NA_integer_
     for (tier_index in seq_along(selection_tiers)) {
       rules <- selection_tiers[[tier_index]]
       for (row_index in seq_len(nrow(choice_grid))) {
         ids <- vapply(seq_along(labels), function(index) {
-          row <- meta %>% filter(ScenarioKey == labels[[index]], Source == choice_grid[row_index, index]) %>% slice(1)
-          if (nrow(row) == 0L) NA_character_ else row$CandidateID[[1]]
+          selected_source <- as.character(choice_grid[row_index, index])
+          if (!nzchar(selected_source)) return(NA_character_)
+          id <- unname(candidate_lookup[[paste(labels[[index]], selected_source, sep = "::")]])
+          if (is.null(id)) NA_character_ else id
         }, character(1))
-        if (anyNA(ids)) next
+        ids <- ids[!is.na(ids)]
+        if (length(ids) == 0L) next
         selected <- meta[match(ids, meta$CandidateID), ]
-        source_counts <- table(selected$Source)
-        if (rules$min_source > 0L && (length(source_counts) < 2L || any(source_counts < rules$min_source))) next
-        if (max(table(selected$Captain)) > 2L || max(table(selected$Constructor)) > max_constructor_entries) next
+        if (max(table(selected$Captain)) > rules$captain_limit || max(table(selected$Constructor)) > rules$constructor_limit) next
         driver_counts <- table(unlist(selected$Drivers, use.names = FALSE))
-        if (max(driver_counts) > max_driver_entries) next
-        pairs <- utils::combn(seq_len(8L), 2L)
-        shared <- apply(pairs, 2, function(pair) length(intersect(selected$Roster[[pair[1]]], selected$Roster[[pair[2]]])))
-        if (any(shared > rules$max_shared)) next
+        if (max(driver_counts) > rules$driver_limit) next
+        shared <- numeric()
+        if (nrow(selected) > 1L) {
+          pairs <- utils::combn(seq_len(nrow(selected)), 2L)
+          shared <- apply(pairs, 2, function(pair) length(intersect(selected$Roster[[pair[1]]], selected$Roster[[pair[2]]])))
+          if (any(shared > rules$max_shared)) next
+        }
         exact_keys <- vapply(selected$Roster, function(roster) paste(sort(roster), collapse = "|"), character(1))
-        if (n_distinct(exact_keys) < 8L) next
+        if (n_distinct(exact_keys) < length(ids)) next
         score <- sum(selected$RobustProjection) + 0.08 * sum(selected$CeilingProjection - selected$MedianProjection) - 0.35 * sum(shared)
-        if (score > best_score) {
+        if (length(ids) > best_count || (length(ids) == best_count && score > best_score)) {
           best_ids <- ids
+          best_count <- length(ids)
           best_score <- score
           selected_tier <- tier_index
         }
       }
-      if (length(best_ids) == 8L) break
+      if (best_count == 8L) break
     }
-    validate(need(length(best_ids) == 8L, "No mixed Baseline/Chatter portfolio satisfies the experimental exposure and overlap rules."))
+    validate(need(length(best_ids) > 0L, "No plausible combined portfolio fits the current salary cap and captain rules."))
     selected <- meta[match(best_ids, meta$CandidateID), ] %>%
       arrange(desc(RobustProjection), desc(CeilingProjection), Candidate) %>%
       mutate(
@@ -10716,13 +10742,13 @@ server <- function(input, output, session) {
           row_number() == 1L ~ "Best single-entry",
           row_number() <= 3L ~ "Included in best three",
           row_number() <= 5L ~ "Added for best five",
-          TRUE ~ "Added for full eight"
+          TRUE ~ "Additional diversified lineup"
         ),
         `Contest use` = case_when(
           row_number() == 1L ~ "Single-entry; Entry 1 of every set",
           row_number() <= 3L ~ "Best three-lineup set",
           row_number() <= 5L ~ "Best five-lineup set",
-          TRUE ~ "Full eight-lineup portfolio"
+          TRUE ~ "Expanded portfolio"
         ),
         SelectionTier = selected_tier
       )
@@ -10814,7 +10840,7 @@ server <- function(input, output, session) {
 
   output$fantasy2_portfolio_mode_note <- renderUI({
     mode <- if (isTRUE(input$fantasy2_use_chatter)) "Chatter" else "Baseline"
-    p(class = "hint", paste0("Candidate preview mode: ", mode, ". The recommended Best 1 / 3 / 5 / 8 portfolio evaluates both modes."))
+    p(class = "hint", paste0("Candidate preview mode: ", mode, ". The recommendation evaluates both modes and generates up to eight plausible lineups."))
   })
 
   output$fantasy2_portfolio_summary_table <- renderTable({
@@ -10920,7 +10946,7 @@ server <- function(input, output, session) {
   }, striped = TRUE, hover = TRUE, bordered = FALSE)
 
   output$fantasy2_combined_download <- downloadHandler(
-    filename = function() paste0("f1_fantasy2_best1_best3_best5_full8_", input$fantasy2_season, "_R", input$fantasy2_round, ".csv"),
+    filename = function() paste0("f1_fantasy2_generated_portfolio_", input$fantasy2_season, "_R", input$fantasy2_round, ".csv"),
     content = function(file) write_csv(fantasy2_combined_portfolio(), file, na = "")
   )
 
@@ -10955,9 +10981,13 @@ server <- function(input, output, session) {
     constructor_names <- vapply(groups, function(x) x$Name[x$Slot == "CON"][1], character(1))
     driver_sets <- lapply(groups, function(x) unique(x$Name[x$Slot %in% c("CPT", "DRV")]))
     roster_sets <- lapply(groups, function(x) c(unique(x$Name[x$Slot %in% c("CPT", "DRV")]), x$Name[x$Slot == "CON"][1]))
-    pairs <- utils::combn(seq_along(groups), 2L)
-    shared <- apply(pairs, 2, function(pair) length(intersect(roster_sets[[pair[1]]], roster_sets[[pair[2]]])))
-    primary_target <- min(8L, max(1L, ceiling(8L * pmin(100, pmax(10, as.numeric(input$fantasy2_constructor_exposure %||% 50))) / 100)))
+    shared <- numeric()
+    if (length(groups) > 1L) {
+      pairs <- utils::combn(seq_along(groups), 2L)
+      shared <- apply(pairs, 2, function(pair) length(intersect(roster_sets[[pair[1]]], roster_sets[[pair[2]]])))
+    }
+    lineup_count <- length(groups)
+    primary_target <- min(lineup_count, max(1L, ceiling(lineup_count * pmin(100, pmax(10, as.numeric(input$fantasy2_constructor_exposure %||% 50))) / 100)))
     tibble(
       Check = c(
         "Recommended lineups",
@@ -10970,18 +11000,17 @@ server <- function(input, output, session) {
         "Overall status"
       ),
       Result = c(
-        paste0(length(groups), " of 8"),
+        paste0(length(groups), " generated (maximum 8)"),
         as.character(sum(captain_names %in% strategy$excluded_captain_names)),
         paste0(sum(constructor_names == strategy$primary_constructor), " of ", primary_target),
-        paste0(sum(vapply(driver_sets, function(x) any(strategy$elite_flex_names %in% x), logical(1))), " of 8"),
+        paste0(sum(vapply(driver_sets, function(x) any(strategy$elite_flex_names %in% x), logical(1))), " of ", lineup_count),
         as.character(n_distinct(captain_names)),
         as.character(n_distinct(constructor_names)),
-        as.character(max(shared)),
+        as.character(if (length(shared) == 0L) 0L else max(shared)),
         if (
-          length(groups) == 8L &&
+          length(groups) > 0L &&
           !any(captain_names %in% strategy$excluded_captain_names) &&
-          sum(constructor_names == strategy$primary_constructor) == primary_target &&
-          max(shared) <= 5L
+          (length(shared) == 0L || max(shared) <= 5L)
         ) "Passed" else "Warning"
       )
     )
@@ -11008,6 +11037,9 @@ server <- function(input, output, session) {
 
   output$fantasy2_portfolio_overlap_table <- renderTable({
     groups <- fantasy2_recommended_lineup_groups()
+    if (length(groups) < 2L) {
+      return(tibble(Note = "Only one plausible lineup was generated; pairwise overlap does not apply."))
+    }
     pairs <- utils::combn(seq_along(groups), 2L)
     bind_rows(lapply(seq_len(ncol(pairs)), function(index) {
       left_name <- names(groups)[pairs[1, index]]
