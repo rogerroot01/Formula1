@@ -2800,7 +2800,7 @@ ui <- fluidPage(
           var tabLinks = document.querySelectorAll('#main_tabs a[data-toggle=tab]');
           var fantasyLinks = Array.prototype.slice.call(tabLinks).filter(function (link) {
             var label = link.textContent.trim();
-            return label === 'Fantasy Lineup' || label === 'Fantasy Lineup 2';
+            return label === 'Fantasy Lineup' || label === 'Fantasy Lineup 2' || label === 'Fantasy Lineup 3';
           });
           return fantasyLinks.some(function (link) {
             return Boolean(link.parentElement && link.parentElement.classList.contains('active'));
@@ -3983,6 +3983,54 @@ ui <- fluidPage(
               div(class = "panel", h2("Portfolio Exposure"), tableOutput("fantasy2_portfolio_exposure_table")),
               div(class = "panel", h2("Pairwise Lineup Overlap"), tableOutput("fantasy2_portfolio_overlap_table")),
               div(class = "panel", h2("Candidate Preview — Up to Eight"), downloadButton("fantasy2_portfolio_download", "Download generated preview (CSV)"), tableOutput("fantasy2_portfolio_table"))
+            )
+          )
+        ),
+        tabPanel(
+          "Fantasy Lineup 3",
+          div(
+            class = "tree-tab-layout",
+            div(
+              class = "tree-controls",
+              h1("Fantasy Lineup 3"),
+              selectInput(
+                "fantasy3_season",
+                "Season",
+                choices = if (nrow(rf_race_choices) == 0) character(0) else sort(unique(rf_race_choices$season), decreasing = TRUE),
+                selected = if (any(rf_race_choices$season == 2026L)) 2026L else if (nrow(rf_race_choices) > 0) max(rf_race_choices$season) else NULL
+              ),
+              uiOutput("fantasy3_race_selector"),
+              numericInput("fantasy3_salary_cap", "Salary cap", value = 50000, min = 10000, step = 500),
+              numericInput("fantasy3_flex_count", "Flex drivers", value = 4, min = 1, max = 6, step = 1),
+              numericInput("fantasy3_captain_pool_size", "Hybrid captain candidates", value = 5, min = 3, max = 7, step = 1),
+              numericInput("fantasy3_driver_exposure", "Max driver exposure (%)", value = 75, min = 25, max = 100, step = 5),
+              numericInput("fantasy3_constructor_exposure", "Max constructor exposure (%)", value = 50, min = 10, max = 100, step = 10),
+              numericInput("fantasy3_chatter_strength", "Chatter strength (%)", value = 50, min = 0, max = 100, step = 10),
+              p(class = "hint", "Hybrid engine: value-upside captain, efficient competitive constructor, one or two premium flex drivers, then value drivers with independent scoring paths. Existing Baseline and Chatter projections are reused; this is not a third projection model.")
+            ),
+            div(
+              class = "tree-tab-content",
+              uiOutput("fantasy3_header"),
+              div(class = "panel", h2("Highest-Rated Hybrid Lineup"), tableOutput("fantasy3_single_lineup_table"), tableOutput("fantasy3_single_lineup_summary")),
+              div(class = "panel", h2("Hybrid Architecture"), tableOutput("fantasy3_architecture_table")),
+              div(class = "panel", h2("Candidate Source Scorecard"), tableOutput("fantasy3_source_summary_table")),
+              div(class = "panel", h2("Constructor Efficiency Board"), div(class = "tree-prediction-table", tableOutput("fantasy3_constructor_table"))),
+              div(class = "panel", h2("Captain and Flex Board"), div(class = "tree-prediction-table", tableOutput("fantasy3_driver_table"))),
+              div(
+                class = "panel",
+                div(
+                  style = "display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;",
+                  h2(style = "margin-bottom:0;", "Best 1 / Best 3 / Best 5 / Up to 8"),
+                  downloadButton("fantasy3_portfolio_download", "Download selected portfolio (CSV)")
+                ),
+                p(class = "hint", "Original, Lineup 2, and Hybrid A/B/C candidates compete for every position. No source receives a reserved entry."),
+                tableOutput("fantasy3_portfolio_summary_table"),
+                tableOutput("fantasy3_portfolio_table")
+              ),
+              div(class = "panel", h2("Portfolio Diversification Audit"), tableOutput("fantasy3_audit_table")),
+              div(class = "panel", h2("Portfolio Exposure"), tableOutput("fantasy3_exposure_table")),
+              div(class = "panel", h2("Pairwise Lineup Overlap"), tableOutput("fantasy3_overlap_table")),
+              div(class = "panel", h2("All Hybrid and Comparison Candidates"), tableOutput("fantasy3_candidate_table"))
             )
           )
         ),
@@ -7994,11 +8042,12 @@ server <- function(input, output, session) {
     rolling_races,
     use_chatter = FALSE,
     use_rolling = FALSE,
-    consensus_rows = NULL
+    consensus_rows = NULL,
+    chatter_strength = input$fantasy_chatter_strength %||% 50
   ) {
     season_value <- as.integer(season_value)
     round_value <- as.integer(round_value)
-    fantasy_chatter_weight <- pmin(1, pmax(0, as.numeric(input$fantasy_chatter_strength %||% 50) / 100))
+    fantasy_chatter_weight <- pmin(1, pmax(0, as.numeric(chatter_strength %||% 50) / 100))
 
     race_rows <- prediction_prerace_rows(season_value, round_value)
 
@@ -8378,7 +8427,26 @@ server <- function(input, output, session) {
       flex_pool <- driver_pool[-captain_index, ]
       if (nrow(flex_pool) < flex_count) next
 
-      combo_matrix <- utils::combn(seq_len(nrow(flex_pool)), flex_count)
+      locked_flex_names <- setdiff(required_drivers, captain$driver_name[[1]])
+      if (length(locked_flex_names) > 0L && !all(locked_flex_names %in% flex_pool$driver_name)) next
+      locked_flex_indexes <- match(locked_flex_names, flex_pool$driver_name)
+      remaining_flex_count <- flex_count - length(locked_flex_indexes)
+      if (remaining_flex_count < 0L) next
+      available_flex_indexes <- setdiff(seq_len(nrow(flex_pool)), locked_flex_indexes)
+      if (remaining_flex_count > length(available_flex_indexes)) next
+      if (remaining_flex_count == 0L) {
+        combo_matrix <- matrix(locked_flex_indexes, nrow = flex_count, ncol = 1L)
+      } else {
+        open_combinations <- utils::combn(available_flex_indexes, remaining_flex_count)
+        if (length(locked_flex_indexes) > 0L) {
+          combo_matrix <- rbind(
+            matrix(rep(locked_flex_indexes, ncol(open_combinations)), nrow = length(locked_flex_indexes)),
+            open_combinations
+          )
+        } else {
+          combo_matrix <- open_combinations
+        }
+      }
       combo_salary <- colSums(matrix(flex_pool$mock_salary[combo_matrix], nrow = flex_count))
       combo_projection <- colSums(matrix(flex_pool$fantasy_projection[combo_matrix], nrow = flex_count), na.rm = TRUE)
       required_driver_present <- if (length(required_drivers) == 0L) {
@@ -10313,7 +10381,8 @@ server <- function(input, output, session) {
       6L,
       isTRUE(use_chatter),
       FALSE,
-      consensus_rows
+      consensus_rows,
+      input$fantasy2_chatter_strength %||% 50
     )
   }
 
@@ -11087,6 +11156,598 @@ server <- function(input, output, session) {
       )
     })) %>% arrange(desc(`Shared selections`), `Lineup 1`, `Lineup 2`)
   }, striped = TRUE, hover = TRUE, bordered = FALSE)
+
+  output$fantasy3_race_selector <- renderUI({
+    req(input$fantasy3_season)
+    choices <- rf_race_choices %>% filter(season == as.integer(input$fantasy3_season))
+    if (nrow(choices) == 0L) choices <- race_choices %>% filter(season == as.integer(input$fantasy3_season))
+    selectInput("fantasy3_round", "Race", choices = setNames(choices$round, choices$label), selected = default_race_round(choices))
+  })
+  outputOptions(output, "fantasy3_race_selector", suspendWhenHidden = FALSE)
+
+  fantasy3_mode_consensus_predictions <- function(use_chatter) {
+    req(input$fantasy3_season, input$fantasy3_round)
+    family_rows <- if (isTRUE(use_chatter)) {
+      build_chatter_adjusted_allmodel_family_ranks(
+        input$fantasy3_season,
+        input$fantasy3_round,
+        as.numeric(input$fantasy3_chatter_strength %||% 50) / 100,
+        TRUE,
+        fantasy_locked_consensus_selection
+      )
+    } else {
+      build_allmodel_family_consensus_ranks(
+        input$fantasy3_season,
+        input$fantasy3_round,
+        fantasy_locked_consensus_selection
+      )
+    }
+    if (nrow(family_rows) == 0L) return(tibble())
+    build_allmodel_predictions_from_family_rows(family_rows, TRUE)
+  }
+
+  fantasy3_mode_driver_projections <- function(use_chatter) {
+    consensus_rows <- fantasy3_mode_consensus_predictions(use_chatter)
+    if (nrow(consensus_rows) == 0L) return(tibble())
+    fantasy_projection_rows(
+      input$fantasy3_season,
+      input$fantasy3_round,
+      6L,
+      isTRUE(use_chatter),
+      FALSE,
+      consensus_rows,
+      input$fantasy3_chatter_strength %||% 50
+    )
+  }
+
+  fantasy3_inputs <- reactive({
+    baseline <- fantasy3_mode_driver_projections(FALSE)
+    chatter <- fantasy3_mode_driver_projections(TRUE)
+    validate(need(nrow(baseline) > 0L && nrow(chatter) > 0L, "Baseline and Chatter projections are required for the hybrid engine."))
+
+    drivers <- baseline %>%
+      rename(baseline_projection = fantasy_projection) %>%
+      left_join(
+        chatter %>% transmute(
+          driver_name,
+          chatter_projection = fantasy_projection,
+          chatter_start = projected_start,
+          chatter_finish = projected_finish,
+          chatter_place_diff = dk_place_diff,
+          chatter_classified = projected_classified_points
+        ),
+        by = "driver_name"
+      ) %>%
+      mutate(
+        median_projection = (baseline_projection + chatter_projection) / 2,
+        projection_spread = abs(chatter_projection - baseline_projection),
+        robust_projection = median_projection - 0.25 * projection_spread,
+        ceiling_projection = pmax(baseline_projection, chatter_projection),
+        robust_value = robust_projection / mock_salary * 1000,
+        captain_value = ceiling_projection / (mock_salary * 1.5) * 1000,
+        place_diff_ceiling = pmax(coalesce(dk_place_diff, 0), coalesce(chatter_place_diff, 0)),
+        finish_upside = 21 - pmin(coalesce(projected_finish, 20), coalesce(chatter_finish, 20)),
+        finish_reliability = pmin(1, pmax(0, rowMeans(cbind(coalesce(projected_classified_points, 0), coalesce(chatter_classified, 0))))),
+        chatter_delta = chatter_projection - baseline_projection
+      ) %>%
+      group_by(constructor_name) %>%
+      mutate(
+        teammate_projection = if (n() > 1L) sum(robust_projection, na.rm = TRUE) - robust_projection else robust_projection,
+        teammate_edge = robust_projection - teammate_projection
+      ) %>%
+      ungroup() %>%
+      mutate(
+        projection_pct = percent_rank(robust_projection),
+        captain_value_pct = percent_rank(captain_value),
+        place_diff_pct = percent_rank(place_diff_ceiling),
+        teammate_pct = percent_rank(teammate_edge),
+        finish_pct = percent_rank(finish_upside),
+        chatter_pct = percent_rank(chatter_delta),
+        volatility_pct = percent_rank(projection_spread),
+        value_path_score = 100 * (
+          0.38 * percent_rank(robust_value) +
+          0.22 * place_diff_pct +
+          0.16 * teammate_pct +
+          0.14 * percent_rank(finish_reliability) +
+          0.10 * finish_pct
+        ),
+        captain_fit_score = 100 * (
+          0.30 * captain_value_pct +
+          0.20 * place_diff_pct +
+          0.15 * teammate_pct +
+          0.15 * finish_pct +
+          0.10 * chatter_pct +
+          0.10 * volatility_pct
+        )
+      )
+
+    premium_salary_cutoff <- quantile(drivers$mock_salary, 0.75, na.rm = TRUE, names = FALSE, type = 1)
+    premium_names <- drivers %>%
+      filter(mock_salary >= premium_salary_cutoff | min_rank(desc(robust_projection)) <= 4L) %>%
+      arrange(desc(robust_projection), desc(mock_salary), driver_name) %>%
+      pull(driver_name) %>% unique()
+    captain_salary_ceiling <- quantile(drivers$mock_salary, 0.85, na.rm = TRUE, names = FALSE, type = 1)
+    captain_pool <- drivers %>%
+      filter(mock_salary <= captain_salary_ceiling, projection_pct >= 0.20) %>%
+      arrange(desc(captain_fit_score), desc(ceiling_projection), mock_salary, driver_name) %>%
+      slice_head(n = max(3L, as.integer(input$fantasy3_captain_pool_size %||% 5L))) %>%
+      mutate(
+        captain_tier = if_else(mock_salary <= median(drivers$mock_salary, na.rm = TRUE), "Value captain", "Mid-priced captain")
+      )
+
+    baseline_constructors <- fantasy_constructor_rows(baseline)
+    chatter_constructors <- fantasy_constructor_rows(chatter)
+    constructor_reliability <- drivers %>%
+      group_by(constructor_name) %>%
+      summarise(
+        both_cars_reliability = prod(pmin(1, pmax(0, finish_reliability)), na.rm = TRUE),
+        place_diff_ceiling = sum(place_diff_ceiling, na.rm = TRUE),
+        .groups = "drop"
+      )
+    constructors <- baseline_constructors %>%
+      rename(baseline_projection = fantasy_projection) %>%
+      left_join(
+        chatter_constructors %>% transmute(constructor_name, chatter_projection = fantasy_projection),
+        by = "constructor_name"
+      ) %>%
+      left_join(constructor_reliability, by = "constructor_name") %>%
+      mutate(
+        median_projection = (baseline_projection + chatter_projection) / 2,
+        projection_spread = abs(chatter_projection - baseline_projection),
+        robust_projection = median_projection - 0.25 * projection_spread,
+        ceiling_projection = pmax(baseline_projection, chatter_projection),
+        robust_value = robust_projection / mock_salary * 1000,
+        efficiency_score = 100 * (
+          0.48 * percent_rank(robust_projection) +
+          0.32 * percent_rank(robust_value) +
+          0.12 * percent_rank(both_cars_reliability) +
+          0.08 * percent_rank(place_diff_ceiling)
+        ),
+        competitive_ceiling = robust_projection >= 0.65 * max(robust_projection, na.rm = TRUE) |
+          min_rank(desc(robust_projection)) <= 4L
+      ) %>%
+      arrange(desc(competitive_ceiling), desc(efficiency_score), desc(robust_projection), constructor_name) %>%
+      mutate(
+        efficiency_rank = if_else(competitive_ceiling, as.integer(cumsum(competitive_ceiling)), NA_integer_),
+        constructor_role = case_when(
+          efficiency_rank == 1L ~ "Primary efficient constructor",
+          min_rank(desc(robust_projection)) <= 2L & mock_salary >= quantile(mock_salary, 0.75, na.rm = TRUE, names = FALSE, type = 1) ~ "Premium dominance candidate",
+          competitive_ceiling & efficiency_rank <= 4L ~ "Efficient alternate",
+          !competitive_ceiling ~ "Outside pool - insufficient projected ceiling",
+          TRUE ~ "Outside primary hybrid pool"
+        )
+      )
+
+    robust_drivers <- drivers %>%
+      mutate(
+        fantasy_projection = robust_projection +
+          0.025 * pmax(place_diff_ceiling, 0) +
+          0.015 * pmax(teammate_edge, 0) +
+          0.006 * value_path_score,
+        value_per_1k = fantasy_projection / mock_salary * 1000
+      )
+    robust_constructors <- constructors %>%
+      mutate(
+        fantasy_projection = robust_projection + 0.01 * efficiency_score,
+        value_per_1k = fantasy_projection / mock_salary * 1000
+      )
+
+    list(
+      baseline = baseline,
+      chatter = chatter,
+      drivers = drivers,
+      constructors = constructors,
+      robust_drivers = robust_drivers,
+      robust_constructors = robust_constructors,
+      captain_pool = captain_pool,
+      premium_names = premium_names,
+      premium_salary_cutoff = premium_salary_cutoff
+    )
+  })
+
+  fantasy3_candidates <- reactive({
+    x <- fantasy3_inputs()
+    candidate_number <- 0L
+    build_candidate <- function(driver_rows, constructor_rows, source, architecture, label,
+                                captain = character(), constructor = character(),
+                                required_drivers = character(), require_premium = FALSE,
+                                architecture_weight = 0) {
+      lineup <- optimize_fantasy_lineup(
+        driver_rows,
+        constructor_rows,
+        input$fantasy3_salary_cap,
+        input$fantasy3_flex_count,
+        TRUE,
+        captain_preference = "any",
+        required_captains = captain,
+        required_drivers = required_drivers,
+        required_any_drivers = if (isTRUE(require_premium)) x$premium_names else character(),
+        required_constructors = constructor
+      )
+      if (nrow(lineup) == 0L) return(tibble())
+      if (isTRUE(require_premium) && !any(lineup$Slot == "DRV" & lineup$Name %in% x$premium_names)) return(tibble())
+      candidate_number <<- candidate_number + 1L
+      lineup %>% mutate(
+        CandidateID = paste0("F3-", candidate_number),
+        Source = source,
+        Architecture = architecture,
+        Candidate = label,
+        ArchitectureWeight = architecture_weight,
+        .before = 1
+      )
+    }
+
+    original <- build_candidate(
+      x$robust_drivers,
+      x$robust_constructors,
+      "Original",
+      "Highest projection",
+      "Original highest-projection architecture"
+    )
+
+    efficient_constructors <- x$constructors %>% filter(competitive_ceiling) %>% slice_head(n = 3L) %>% pull(constructor_name)
+    lineup2_grid <- expand.grid(
+      captain = head(x$captain_pool$driver_name, 3L),
+      constructor = head(efficient_constructors, 2L),
+      stringsAsFactors = FALSE
+    )
+    lineup2_parts <- list()
+    for (index in seq_len(nrow(lineup2_grid))) {
+      candidate <- build_candidate(
+        x$robust_drivers, x$robust_constructors,
+        "Lineup 2", "Constructor/captain first",
+        paste0("Lineup 2: ", lineup2_grid$captain[[index]], " + ", lineup2_grid$constructor[[index]]),
+        captain = lineup2_grid$captain[[index]],
+        constructor = lineup2_grid$constructor[[index]],
+        require_premium = TRUE
+      )
+      if (nrow(candidate) > 0L) lineup2_parts[[length(lineup2_parts) + 1L]] <- candidate
+      if (length(lineup2_parts) >= 4L) break
+    }
+    lineup2 <- bind_rows(lineup2_parts)
+
+    premium_pool <- x$drivers %>%
+      filter(driver_name %in% x$premium_names) %>%
+      arrange(desc(robust_projection), desc(mock_salary), driver_name) %>%
+      slice_head(n = 4L) %>% pull(driver_name)
+    premium_pairs <- if (length(premium_pool) >= 2L) combn(premium_pool, 2L, simplify = FALSE) else list()
+    primary_efficient_constructor <- efficient_constructors[[1]]
+    hybrid_a_parts <- list()
+    for (pair in premium_pairs) {
+      for (captain_name in head(x$captain_pool$driver_name, 4L)) {
+        if (captain_name %in% pair) next
+        candidate <- build_candidate(
+          x$robust_drivers, x$robust_constructors,
+          "Hybrid", "Hybrid A",
+          paste0("Hybrid A: ", captain_name, " / ", primary_efficient_constructor, " / two premium flex"),
+          captain = captain_name,
+          constructor = primary_efficient_constructor,
+          required_drivers = pair,
+          architecture_weight = 0.60
+        )
+        if (nrow(candidate) > 0L) hybrid_a_parts[[length(hybrid_a_parts) + 1L]] <- candidate
+        if (length(hybrid_a_parts) >= 6L) break
+      }
+      if (length(hybrid_a_parts) >= 6L) break
+    }
+    hybrid_a <- bind_rows(hybrid_a_parts)
+
+    premium_constructor <- x$constructors %>%
+      filter(min_rank(desc(robust_projection)) <= 2L) %>%
+      arrange(desc(mock_salary), desc(robust_projection)) %>%
+      slice(1) %>% pull(constructor_name)
+    hybrid_b_parts <- list()
+    for (captain_name in head(x$captain_pool$driver_name, 4L)) {
+      candidate <- build_candidate(
+        x$robust_drivers, x$robust_constructors,
+        "Hybrid", "Hybrid B",
+        paste0("Hybrid B: ", captain_name, " / premium ", premium_constructor),
+        captain = captain_name,
+        constructor = premium_constructor,
+        require_premium = TRUE,
+        architecture_weight = 0.20
+      )
+      if (nrow(candidate) > 0L) hybrid_b_parts[[length(hybrid_b_parts) + 1L]] <- candidate
+      if (length(hybrid_b_parts) >= 2L) break
+    }
+    hybrid_b <- bind_rows(hybrid_b_parts)
+
+    hybrid_b_captains <- hybrid_b %>% filter(Slot == "CPT") %>% pull(Name) %>% unique()
+    mid_captains <- x$captain_pool %>%
+      filter(!driver_name %in% hybrid_b_captains) %>%
+      arrange(desc(captain_tier == "Mid-priced captain"), desc(captain_fit_score)) %>%
+      slice_head(n = 3L) %>% pull(driver_name)
+    if (length(mid_captains) < 2L) {
+      mid_captains <- x$captain_pool %>%
+        arrange(desc(captain_tier == "Mid-priced captain"), desc(captain_fit_score)) %>%
+        pull(driver_name) %>% unique()
+    }
+    hybrid_c_parts <- list()
+    for (captain_name in mid_captains) {
+      for (constructor_name in head(efficient_constructors, 2L)) {
+        candidate <- build_candidate(
+          x$robust_drivers, x$robust_constructors,
+          "Hybrid", "Hybrid C",
+          paste0("Hybrid C: ", captain_name, " / ", constructor_name, " / balanced flex"),
+          captain = captain_name,
+          constructor = constructor_name,
+          require_premium = TRUE,
+          architecture_weight = 0.20
+        )
+        if (nrow(candidate) > 0L) hybrid_c_parts[[length(hybrid_c_parts) + 1L]] <- candidate
+        if (length(hybrid_c_parts) >= 2L) break
+      }
+      if (length(hybrid_c_parts) >= 2L) break
+    }
+    hybrid_c <- bind_rows(hybrid_c_parts)
+
+    candidates <- bind_rows(original, lineup2, hybrid_a, hybrid_b, hybrid_c)
+    validate(need(n_distinct(candidates$CandidateID) > 0L, "No Fantasy Lineup 3 candidates fit the current salary cap."))
+
+    driver_lookup <- x$drivers %>% transmute(
+      AssetType = "Driver", Name = driver_name,
+      RobustEvaluation = robust_projection,
+      CeilingEvaluation = ceiling_projection
+    )
+    constructor_lookup <- x$constructors %>% transmute(
+      AssetType = "Constructor", Name = constructor_name,
+      RobustEvaluation = robust_projection,
+      CeilingEvaluation = ceiling_projection
+    )
+    bind_rows(driver_lookup, constructor_lookup) %>%
+      right_join(candidates %>% mutate(AssetType = if_else(Slot == "CON", "Constructor", "Driver")), by = c("AssetType", "Name")) %>%
+      mutate(
+        RobustEvaluation = RobustEvaluation * if_else(Slot == "CPT", 1.5, 1),
+        CeilingEvaluation = CeilingEvaluation * if_else(Slot == "CPT", 1.5, 1),
+        PremiumFlex = Slot == "DRV" & Name %in% x$premium_names
+      ) %>%
+      group_by(CandidateID) %>%
+      mutate(
+        `Robust projection` = sum(RobustEvaluation, na.rm = TRUE),
+        `Ceiling projection` = sum(CeilingEvaluation, na.rm = TRUE),
+        `Premium flex drivers` = sum(PremiumFlex),
+        `Hybrid selection score` = `Robust projection` +
+          0.22 * (`Ceiling projection` - `Robust projection`) +
+          1.5 * `Premium flex drivers` +
+          2 * ArchitectureWeight
+      ) %>%
+      ungroup() %>%
+      select(-AssetType, -RobustEvaluation, -CeilingEvaluation, -PremiumFlex)
+  })
+
+  fantasy3_portfolio <- reactive({
+    candidates <- fantasy3_candidates()
+    groups <- split(candidates, candidates$CandidateID)
+    meta <- bind_rows(lapply(names(groups), function(id) {
+      rows <- groups[[id]]
+      roster <- c(unique(rows$Name[rows$Slot %in% c("CPT", "DRV")]), rows$Name[rows$Slot == "CON"][1])
+      tibble(
+        CandidateID = id,
+        Source = first(rows$Source),
+        Architecture = first(rows$Architecture),
+        Candidate = first(rows$Candidate),
+        Score = first(rows$`Hybrid selection score`),
+        Robust = first(rows$`Robust projection`),
+        Ceiling = first(rows$`Ceiling projection`),
+        Captain = rows$Name[rows$Slot == "CPT"][1],
+        Constructor = rows$Name[rows$Slot == "CON"][1],
+        Drivers = list(unique(rows$Name[rows$Slot %in% c("CPT", "DRV")])),
+        Roster = list(roster),
+        RosterKey = paste(sort(roster), collapse = "|")
+      )
+    })) %>%
+      arrange(desc(Score), desc(Ceiling), Candidate) %>%
+      distinct(RosterKey, .keep_all = TRUE)
+
+    portfolio_size <- min(8L, nrow(meta))
+    max_driver <- max(1L, ceiling(portfolio_size * pmin(100, pmax(25, as.numeric(input$fantasy3_driver_exposure %||% 75))) / 100))
+    max_constructor <- max(1L, ceiling(portfolio_size * pmin(100, pmax(10, as.numeric(input$fantasy3_constructor_exposure %||% 50))) / 100))
+    rule_tiers <- list(
+      list(driver = max_driver, constructor = max_constructor, captain = 2L, overlap = 4L),
+      list(driver = max_driver, constructor = max_constructor, captain = 2L, overlap = 5L),
+      list(driver = portfolio_size, constructor = portfolio_size, captain = 3L, overlap = 5L)
+    )
+    best_selected <- integer()
+    best_tier <- NA_integer_
+    for (tier_index in seq_along(rule_tiers)) {
+      rules <- rule_tiers[[tier_index]]
+      selected <- integer()
+      remaining <- seq_len(nrow(meta))
+      while (length(selected) < portfolio_size && length(remaining) > 0L) {
+        valid <- remaining[vapply(remaining, function(index) {
+          trial <- c(selected, index)
+          driver_counts <- table(unlist(meta$Drivers[trial], use.names = FALSE))
+          constructor_counts <- table(meta$Constructor[trial])
+          captain_counts <- table(meta$Captain[trial])
+          if (max(driver_counts) > rules$driver || max(constructor_counts) > rules$constructor || max(captain_counts) > rules$captain) return(FALSE)
+          if (length(selected) > 0L) {
+            overlaps <- vapply(selected, function(other) length(intersect(meta$Roster[[other]], meta$Roster[[index]])), integer(1))
+            if (any(overlaps > rules$overlap)) return(FALSE)
+          }
+          TRUE
+        }, logical(1))]
+        if (length(valid) == 0L) break
+        incremental <- vapply(valid, function(index) {
+          overlap_penalty <- if (length(selected) == 0L) 0 else sum(vapply(selected, function(other) length(intersect(meta$Roster[[other]], meta$Roster[[index]])), integer(1)))
+          source_bonus <- if (length(selected) == 0L || !meta$Source[[index]] %in% meta$Source[selected]) 2 else 0
+          architecture_bonus <- if (length(selected) == 0L || !meta$Architecture[[index]] %in% meta$Architecture[selected]) 1 else 0
+          meta$Score[[index]] + source_bonus + architecture_bonus - 1.25 * overlap_penalty
+        }, numeric(1))
+        chosen <- valid[[which.max(incremental)]]
+        selected <- c(selected, chosen)
+        remaining <- setdiff(remaining, chosen)
+      }
+      if (length(selected) > length(best_selected)) {
+        best_selected <- selected
+        best_tier <- tier_index
+      }
+      if (length(best_selected) == portfolio_size) break
+    }
+    validate(need(length(best_selected) > 0L, "No distinct Fantasy Lineup 3 portfolio fits the current settings."))
+    selected_meta <- meta[best_selected, ] %>%
+      mutate(
+        `Combined lineup` = paste0("Entry ", row_number()),
+        `Portfolio tier` = case_when(
+          row_number() == 1L ~ "Best single-entry",
+          row_number() <= 3L ~ "Included in best three",
+          row_number() <= 5L ~ "Added for best five",
+          TRUE ~ "Additional diversified lineup"
+        ),
+        SelectionTier = best_tier
+      )
+    candidates %>%
+      inner_join(selected_meta %>% select(CandidateID, `Combined lineup`, `Portfolio tier`), by = "CandidateID") %>%
+      arrange(as.integer(str_remove(`Combined lineup`, "Entry ")), factor(Slot, levels = c("CPT", "DRV", "CON")))
+  })
+
+  observeEvent(list(input$main_tabs, input$fantasy3_round), {
+    req(identical(input$main_tabs, "Fantasy Lineup 3"), input$fantasy3_round)
+    fantasy3_portfolio()
+  }, ignoreInit = TRUE, priority = 100)
+
+  fantasy3_format_lineup <- function(rows) {
+    rows %>% transmute(
+      Slot, Name, Constructor,
+      Salary = paste0("$", format(round(Salary, 0), big.mark = ",")),
+      Projection = format_num(Projection, 2),
+      `Value / $1k` = format_num(Value, 2)
+    )
+  }
+
+  output$fantasy3_header <- renderUI({
+    x <- fantasy3_inputs()
+    race <- x$baseline %>% distinct(season, round, race_name) %>% slice(1)
+    div(class = "event-header", div(class = "event-title-block",
+      div(class = "eyebrow", paste0(race$season, " Round ", race$round, " · Hybrid construction engine")),
+      h1(race$race_name),
+      p(paste0("Primary efficient constructor: ", first(x$constructors$constructor_name), ". Hybrid captain pool: ", paste(x$captain_pool$driver_name, collapse = ", "), "."))
+    ))
+  })
+
+  output$fantasy3_single_lineup_table <- renderTable({
+    rows <- fantasy3_portfolio() %>% filter(`Combined lineup` == "Entry 1")
+    validate(need(nrow(rows) > 0L, "No hybrid lineup is available."))
+    fantasy3_format_lineup(rows)
+  }, striped = TRUE, hover = TRUE, bordered = FALSE)
+
+  output$fantasy3_single_lineup_summary <- renderTable({
+    rows <- fantasy3_portfolio() %>% filter(`Combined lineup` == "Entry 1")
+    rows %>% summarise(
+      Source = first(Source), Architecture = first(Architecture), Captain = Name[Slot == "CPT"][1], Constructor = Name[Slot == "CON"][1],
+      `Premium flex` = first(`Premium flex drivers`),
+      `Total salary` = paste0("$", format(round(first(total_salary), 0), big.mark = ",")),
+      `Robust DK` = format_num(first(`Robust projection`), 2), `Ceiling DK` = format_num(first(`Ceiling projection`), 2)
+    )
+  }, striped = TRUE, hover = TRUE, bordered = FALSE)
+
+  output$fantasy3_architecture_table <- renderTable({
+    candidates <- fantasy3_candidates()
+    selected <- fantasy3_portfolio()
+    tibble(
+      Architecture = c("Hybrid A", "Hybrid B", "Hybrid C"),
+      Construction = c(
+        "Value captain + efficient constructor + two premium flex drivers",
+        "Value captain + premium constructor + at least one premium flex driver",
+        "Mid captain + efficient constructor + balanced flex"
+      ),
+      `Target pool weight` = c("60%", "20%", "20%")
+    ) %>%
+      left_join(candidates %>% distinct(CandidateID, Architecture) %>% count(Architecture, name = "Candidates"), by = "Architecture") %>%
+      left_join(selected %>% distinct(CandidateID, Architecture) %>% count(Architecture, name = "Selected"), by = "Architecture") %>%
+      mutate(Candidates = coalesce(Candidates, 0L), Selected = coalesce(Selected, 0L))
+  }, striped = TRUE, hover = TRUE, bordered = FALSE)
+
+  output$fantasy3_source_summary_table <- renderTable({
+    fantasy3_candidates() %>%
+      distinct(CandidateID, Source, Architecture, `Robust projection`, `Ceiling projection`, `Hybrid selection score`) %>%
+      group_by(Source) %>%
+      summarise(Candidates = n(), `Best robust DK` = format_num(max(`Robust projection`), 2), `Best ceiling DK` = format_num(max(`Ceiling projection`), 2), .groups = "drop") %>%
+      left_join(fantasy3_portfolio() %>% distinct(CandidateID, Source) %>% count(Source, name = "Selected"), by = "Source") %>%
+      mutate(Selected = coalesce(Selected, 0L)) %>% arrange(desc(Selected), desc(Candidates))
+  }, striped = TRUE, hover = TRUE, bordered = FALSE)
+
+  output$fantasy3_constructor_table <- renderTable({
+    fantasy3_inputs()$constructors %>% transmute(
+      Rank = efficiency_rank, Constructor = constructor_name, Role = constructor_role,
+      Salary = paste0("$", format(round(mock_salary, 0), big.mark = ",")),
+      `Robust DK` = format_num(robust_projection, 2), `Ceiling DK` = format_num(ceiling_projection, 2),
+      `Value / $1k` = format_num(robust_value, 2), Reliability = format_pct(both_cars_reliability, 1),
+      `Efficiency score` = format_num(efficiency_score, 1)
+    )
+  }, striped = TRUE, hover = TRUE, bordered = FALSE)
+
+  output$fantasy3_driver_table <- renderTable({
+    x <- fantasy3_inputs()
+    x$drivers %>%
+      left_join(x$captain_pool %>% select(driver_name, captain_tier), by = "driver_name") %>%
+      transmute(
+        Driver = driver_name, Constructor = constructor_name,
+        Role = case_when(!is.na(captain_tier) ~ captain_tier, driver_name %in% x$premium_names ~ "Premium flex", TRUE ~ "Value/balanced flex"),
+        Salary = paste0("$", format(round(mock_salary, 0), big.mark = ",")),
+        `Robust DK` = format_num(robust_projection, 2), `Ceiling DK` = format_num(ceiling_projection, 2),
+        `Place diff ceiling` = format_num(place_diff_ceiling, 2), `Teammate edge` = format_num(teammate_edge, 2),
+        `Captain fit` = format_num(captain_fit_score, 1), `Value-path score` = format_num(value_path_score, 1)
+      ) %>% arrange(desc(as.numeric(`Captain fit`)), desc(as.numeric(`Robust DK`)))
+  }, striped = TRUE, hover = TRUE, bordered = FALSE)
+
+  output$fantasy3_portfolio_summary_table <- renderTable({
+    fantasy3_portfolio() %>% group_by(`Combined lineup`, `Portfolio tier`, Source, Architecture, Candidate) %>% summarise(
+      Captain = Name[Slot == "CPT"][1], Constructor = Name[Slot == "CON"][1], `Premium flex` = first(`Premium flex drivers`),
+      `Total salary` = paste0("$", format(round(first(total_salary), 0), big.mark = ",")),
+      `Robust DK` = format_num(first(`Robust projection`), 2), `Ceiling DK` = format_num(first(`Ceiling projection`), 2), .groups = "drop"
+    )
+  }, striped = TRUE, hover = TRUE, bordered = FALSE)
+
+  output$fantasy3_portfolio_table <- renderTable({
+    fantasy3_portfolio() %>% transmute(`Combined lineup`, `Portfolio tier`, Source, Architecture, Slot, Name, Constructor,
+      Salary = paste0("$", format(round(Salary, 0), big.mark = ",")), Projection = format_num(Projection, 2), `Value / $1k` = format_num(Value, 2))
+  }, striped = TRUE, hover = TRUE, bordered = FALSE)
+
+  output$fantasy3_candidate_table <- renderTable({
+    fantasy3_candidates() %>% distinct(CandidateID, Source, Architecture, Candidate, `Premium flex drivers`, total_salary, `Robust projection`, `Ceiling projection`, `Hybrid selection score`) %>%
+      arrange(desc(`Hybrid selection score`)) %>% transmute(Source, Architecture, Candidate, `Premium flex` = `Premium flex drivers`,
+        Salary = paste0("$", format(round(total_salary, 0), big.mark = ",")), `Robust DK` = format_num(`Robust projection`, 2),
+        `Ceiling DK` = format_num(`Ceiling projection`, 2), Score = format_num(`Hybrid selection score`, 2))
+  }, striped = TRUE, hover = TRUE, bordered = FALSE)
+
+  fantasy3_groups <- reactive(split(fantasy3_portfolio(), fantasy3_portfolio()$`Combined lineup`))
+
+  output$fantasy3_audit_table <- renderTable({
+    groups <- fantasy3_groups()
+    captains <- vapply(groups, function(rows) rows$Name[rows$Slot == "CPT"][1], character(1))
+    constructors <- vapply(groups, function(rows) rows$Name[rows$Slot == "CON"][1], character(1))
+    rosters <- lapply(groups, function(rows) c(unique(rows$Name[rows$Slot %in% c("CPT", "DRV")]), rows$Name[rows$Slot == "CON"][1]))
+    shared <- if (length(groups) < 2L) 0L else apply(combn(seq_along(groups), 2L), 2, function(pair) length(intersect(rosters[[pair[1]]], rosters[[pair[2]]])))
+    tibble(Check = c("Generated lineups", "Candidate sources represented", "Distinct captains", "Distinct constructors", "Maximum shared selections", "Exact duplicate lineups"),
+      Result = c(paste0(length(groups), " (maximum 8)"), n_distinct(vapply(groups, function(rows) first(rows$Source), character(1))), n_distinct(captains), n_distinct(constructors), max(shared), anyDuplicated(vapply(rosters, function(roster) paste(sort(roster), collapse = "|"), character(1)))))
+  }, striped = TRUE, hover = TRUE, bordered = FALSE)
+
+  output$fantasy3_exposure_table <- renderTable({
+    rows <- fantasy3_portfolio()
+    lineup_count <- n_distinct(rows$`Combined lineup`)
+    bind_rows(
+      rows %>% filter(Slot %in% c("CPT", "DRV")) %>% group_by(Name) %>% summarise(Lineups = n_distinct(`Combined lineup`), `Captain lineups` = sum(Slot == "CPT"), .groups = "drop") %>% mutate(Type = "Driver"),
+      rows %>% filter(Slot == "CON") %>% group_by(Name) %>% summarise(Lineups = n_distinct(`Combined lineup`), .groups = "drop") %>% mutate(Type = "Constructor", `Captain lineups` = 0L)
+    ) %>% mutate(Exposure = paste0(format_num(Lineups / lineup_count * 100, 1), "%")) %>% arrange(Type, desc(Lineups), Name) %>% select(Type, Name, Lineups, Exposure, `Captain lineups`)
+  }, striped = TRUE, hover = TRUE, bordered = FALSE)
+
+  output$fantasy3_overlap_table <- renderTable({
+    groups <- fantasy3_groups()
+    if (length(groups) < 2L) return(tibble(Note = "Only one distinct lineup was generated."))
+    pairs <- combn(seq_along(groups), 2L)
+    bind_rows(lapply(seq_len(ncol(pairs)), function(index) {
+      left <- groups[[pairs[1, index]]]; right <- groups[[pairs[2, index]]]
+      left_set <- c(unique(left$Name[left$Slot %in% c("CPT", "DRV")]), left$Name[left$Slot == "CON"][1])
+      right_set <- c(unique(right$Name[right$Slot %in% c("CPT", "DRV")]), right$Name[right$Slot == "CON"][1])
+      shared <- sort(intersect(left_set, right_set))
+      tibble(`Lineup 1` = names(groups)[pairs[1, index]], `Lineup 2` = names(groups)[pairs[2, index]], `Shared selections` = length(shared), `Shared names` = paste(shared, collapse = ", "))
+    })) %>% arrange(desc(`Shared selections`))
+  }, striped = TRUE, hover = TRUE, bordered = FALSE)
+
+  output$fantasy3_portfolio_download <- downloadHandler(
+    filename = function() paste0("f1_fantasy3_hybrid_portfolio_", input$fantasy3_season, "_R", input$fantasy3_round, ".csv"),
+    content = function(file) write_csv(fantasy3_portfolio(), file, na = "")
+  )
 
   output$race_selector <- renderUI({
     choices <- race_choices %>%
