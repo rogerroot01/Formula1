@@ -3029,6 +3029,14 @@ ui <- fluidPage(
                   width = 12,
                   div(
                     class = "panel",
+                    h2("Recent Circuit Pole Sitters"),
+                    div(class = "recent-winners-table", tableOutput("recent_poles"))
+                  )
+                ),
+                column(
+                  width = 12,
+                  div(
+                    class = "panel",
                     h2("Selected Race Results"),
                     div(class = "race-results-table", tableOutput("race_results"))
                   )
@@ -11218,9 +11226,12 @@ server <- function(input, output, session) {
         list(
           if (!is.na(cluster_id) && cluster_id != "") {
             tags$li(
-              tags$b(cluster_display_name(cluster_id, cluster_label)),
+              tags$b(paste0(
+                "Cluster ", cluster_display_number(cluster_id), ": ",
+                cluster_display_name(cluster_id, cluster_label)
+              )),
               paste0(
-                ": ",
+                " — ",
                 if (!is.na(cluster_peers) && cluster_peers != "") cluster_peers else "Similar-track cluster unavailable"
               )
             )
@@ -11386,6 +11397,28 @@ server <- function(input, output, session) {
         Constructor = constructor_name,
         Grid = format_int(grid),
         `Gap Raw` = gap_raw
+      ) %>%
+      head(10)
+  }, striped = TRUE, hover = TRUE, bordered = FALSE)
+
+  output$recent_poles <- renderTable({
+    rows <- event_meta()
+    req(nrow(rows) > 0)
+    circuit <- rows$circuit_id[[1]]
+
+    stage1 %>%
+      filter(circuit_id == circuit, quali_position == 1) %>%
+      arrange(desc(season), desc(round)) %>%
+      transmute(
+        Season = season,
+        Race = race_name,
+        `Pole sitter` = paste(driver_code, driver_name),
+        Constructor = constructor_name,
+        `Qualifying time` = vapply(
+          best_quali_sec,
+          function(value) if (is.na(value) || is.infinite(value)) "" else format_sec(value),
+          character(1)
+        )
       ) %>%
       head(10)
   }, striped = TRUE, hover = TRUE, bordered = FALSE)
