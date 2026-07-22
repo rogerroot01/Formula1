@@ -3867,7 +3867,9 @@ ui <- fluidPage(
             )
           )
         ),
-        tabPanel(
+        navbarMenu(
+          "Fantasy",
+          tabPanel(
           "Fantasy Lineup",
           div(
             class = "tree-tab-layout",
@@ -3926,7 +3928,7 @@ ui <- fluidPage(
             )
           )
         ),
-        tabPanel(
+          tabPanel(
           "Fantasy Lineup 2",
           div(
             class = "tree-tab-layout",
@@ -3986,7 +3988,7 @@ ui <- fluidPage(
             )
           )
         ),
-        tabPanel(
+          tabPanel(
           "Fantasy Lineup 3",
           div(
             class = "tree-tab-layout",
@@ -4033,7 +4035,8 @@ ui <- fluidPage(
               div(class = "panel", h2("All Hybrid and Comparison Candidates"), tableOutput("fantasy3_candidate_table"))
             )
           )
-        ),
+          )
+        )
       )
     )
   )
