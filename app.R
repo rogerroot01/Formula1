@@ -2309,6 +2309,53 @@ winner_without_model_lookup <- winner_without_predictions %>%
 
 winner_without_model_choices <- setNames(winner_without_model_lookup$model, winner_without_model_lookup$model_label)
 
+winner_without_base_models <- c(
+  "xgb_winner_without_probability",
+  "xgb_winner_without_with_constructor",
+  "xgb_winner_without_no_constructor"
+)
+
+default_winner_without_models_for_race <- function(selected_season, selected_round) {
+  if (is.null(selected_season) || is.null(selected_round)) {
+    return(intersect(winner_without_base_models, winner_without_model_lookup$model))
+  }
+
+  race_flags <- race_choices %>%
+    filter(season == as.integer(selected_season), round == as.integer(selected_round)) %>%
+    slice(1)
+
+  if (nrow(race_flags) == 0) {
+    return(intersect(winner_without_base_models, winner_without_model_lookup$model))
+  }
+
+  flag_on <- function(flag) {
+    flag %in% names(race_flags) && coalesce(as.integer(race_flags[[flag]][[1]]), 0L) == 1L
+  }
+
+  high_speed_models <- if (flag_on("is_high_speed")) {
+    c(
+      "xgb_winner_without_high_speed_specialist",
+      "xgb_winner_without_profile_high_speed_specialist"
+    )
+  } else {
+    "xgb_winner_without_non_high_speed_specialist"
+  }
+
+  routed_models <- c(
+    winner_without_base_models,
+    high_speed_models,
+    if (flag_on("is_street")) "xgb_winner_without_street_specialist",
+    if (flag_on("is_permanent_road_course")) "xgb_winner_without_permanent_specialist",
+    if (
+      flag_on("is_stop_start") ||
+        flag_on("is_low_overtake") ||
+        flag_on("is_tyre_deg_heavy")
+    ) "xgb_winner_without_tactical_specialist"
+  )
+
+  intersect(unique(routed_models), winner_without_model_lookup$model)
+}
+
 selected_or_default_models <- function(selected_models, default_models) {
   if (is.null(selected_models)) as.character(default_models) else as.character(selected_models)
 }
@@ -5862,6 +5909,15 @@ server <- function(input, output, session) {
     choices <- rf_race_choices %>% filter(season == as.integer(input$winner_without_season))
     selectInput("winner_without_round", "Race", choices = setNames(choices$round, choices$label), selected = default_race_round(choices))
   })
+
+  observeEvent(list(input$winner_without_season, input$winner_without_round), {
+    req(input$winner_without_season, input$winner_without_round)
+    updateCheckboxGroupInput(
+      session,
+      "winner_without_models",
+      selected = default_winner_without_models_for_race(input$winner_without_season, input$winner_without_round)
+    )
+  }, ignoreInit = FALSE)
 
   selected_winner_without_predictions <- reactive({
     validate(need(nrow(winner_without_predictions) > 0, "Run Stage 17 winner-without modeling to create predictions."))
