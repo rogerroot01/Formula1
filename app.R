@@ -2280,15 +2280,38 @@ qualifying_model_lookup <- qualifying_predictions %>%
     model == "linear_quali_constructor" ~ 2L,
     model == "xgb_quali_constructor_track" ~ 3L,
     model == "xgb_quali_no_constructor" ~ 4L,
-    model == "xgb_quali_high_speed_specialist" ~ 5L,
-    model == "xgb_quali_technical_specialist" ~ 6L,
-    model == "xgb_quali_position" ~ 7L,
-    model == "xgb_quali_delta" ~ 8L,
+    model == "xgb_quali_street_specialist" ~ 5L,
+    model == "xgb_quali_permanent_specialist" ~ 6L,
+    model == "xgb_quali_high_speed_specialist" ~ 7L,
+    model == "xgb_quali_technical_specialist" ~ 8L,
+    model == "xgb_quali_position" ~ 9L,
+    model == "xgb_quali_delta" ~ 10L,
     TRUE ~ 99L
   )) %>%
   arrange(model_order, model_label)
 
 qualifying_model_choices <- setNames(qualifying_model_lookup$model, qualifying_model_lookup$model_label)
+
+qualifying_general_models <- c(
+  "linear_quali_position",
+  "linear_quali_constructor",
+  "xgb_quali_constructor_track",
+  "xgb_quali_no_constructor",
+  "xgb_quali_position",
+  "xgb_quali_delta"
+)
+
+default_qualifying_models_for_race <- function(selected_season, selected_round) {
+  route_types <- race_route_types(selected_season, selected_round)
+  specialist_models <- c(
+    if ("street" %in% route_types) "xgb_quali_street_specialist",
+    if ("permanent" %in% route_types) "xgb_quali_permanent_specialist",
+    if ("high_speed" %in% route_types) "xgb_quali_high_speed_specialist",
+    if ("technical" %in% route_types) "xgb_quali_technical_specialist"
+  )
+
+  intersect(c(qualifying_general_models, specialist_models), qualifying_model_lookup$model)
+}
 
 winner_without_model_lookup <- winner_without_predictions %>%
   distinct(model, model_label) %>%
@@ -3493,7 +3516,7 @@ ui <- fluidPage(
                 "qualifying_models",
                 "Qualifying model",
                 choices = qualifying_model_choices,
-                selected = qualifying_model_lookup$model
+                selected = intersect(qualifying_general_models, qualifying_model_lookup$model)
               )
             ),
             div(
@@ -3523,7 +3546,7 @@ ui <- fluidPage(
                 "chatter_quali_models",
                 "Qualifying model",
                 choices = qualifying_model_choices,
-                selected = qualifying_model_lookup$model
+                selected = intersect(qualifying_general_models, qualifying_model_lookup$model)
               )
             ),
             div(
@@ -5689,6 +5712,15 @@ server <- function(input, output, session) {
     selectInput("qualifying_round", "Race", choices = setNames(choices$round, choices$label), selected = default_race_round(choices))
   })
 
+  observeEvent(list(input$qualifying_season, input$qualifying_round), {
+    req(input$qualifying_season, input$qualifying_round)
+    updateCheckboxGroupInput(
+      session,
+      "qualifying_models",
+      selected = default_qualifying_models_for_race(input$qualifying_season, input$qualifying_round)
+    )
+  }, ignoreInit = FALSE)
+
   selected_qualifying_predictions <- reactive({
     validate(need(nrow(qualifying_predictions) > 0, "Run Stage 7 qualifying modeling to create qualifying predictions."))
     req(input$qualifying_season, input$qualifying_round)
@@ -5857,6 +5889,11 @@ server <- function(input, output, session) {
 
   output$qualifying_pole_table <- renderTable({
     selected_qualifying_predictions() %>%
+      left_join(
+        qualifying_market_odds_lookup %>%
+          select(season, round, driver_code, pole_current_american_odds, pole_current_no_vig_probability),
+        by = c("season", "round", "driver_code")
+      ) %>%
       filter(predicted_quali_rank == 1) %>%
       mutate(has_actual_quali = !is.na(finish_position) & !is.na(actual_quali_position)) %>%
       transmute(
@@ -5867,6 +5904,9 @@ server <- function(input, output, session) {
         `Pred delta` = format_num(predicted_quali_delta_sec, 3),
         `Pole norm %` = format_pct(rank_normalized_pole_probability, 0.1),
         `Implied pole ML` = probability_to_american_label(rank_normalized_pole_probability),
+        `Market pole %` = format_pct(pole_current_no_vig_probability, 0.1),
+        `Current pole ML` = fmt_american_label(pole_current_american_odds),
+        `Model edge` = format_pct(rank_normalized_pole_probability - pole_current_no_vig_probability, 0.1),
         `Actual quali` = ifelse(has_actual_quali, format_int(actual_quali_position), ""),
         Correct = ifelse(has_actual_quali, ifelse(coalesce(pole_pick_correct, FALSE), "Yes", "No"), "")
       )
@@ -5876,7 +5916,7 @@ server <- function(input, output, session) {
     selected_qualifying_predictions() %>%
       left_join(
         qualifying_market_odds_lookup %>%
-          select(season, round, driver_code, pole_current_american_odds),
+          select(season, round, driver_code, pole_current_american_odds, pole_current_no_vig_probability),
         by = c("season", "round", "driver_code")
       ) %>%
       arrange(model_label, predicted_quali_rank) %>%
@@ -5895,7 +5935,9 @@ server <- function(input, output, session) {
         `Pred delta` = format_num(predicted_quali_delta_sec, 3),
         `Pole norm %` = format_pct(rank_normalized_pole_probability, 0.1),
         `Implied pole ML` = probability_to_american_label(rank_normalized_pole_probability),
+        `Market pole %` = format_pct(pole_current_no_vig_probability, 0.1),
         `Current pole ML` = fmt_american_label(pole_current_american_odds),
+        `Model edge` = format_pct(rank_normalized_pole_probability - pole_current_no_vig_probability, 0.1),
         `Pred grid` = format_predicted_position(predicted_grid),
         `Actual quali` = ifelse(has_actual_quali, format_int(actual_quali_position), ""),
         `Actual delta` = ifelse(has_actual_delta, format_num(actual_quali_delta_sec, 3), ""),
@@ -7211,6 +7253,15 @@ server <- function(input, output, session) {
     selectInput("chatter_quali_round", "Race", choices = setNames(choices$round, choices$label), selected = default_race_round(choices))
   })
 
+  observeEvent(list(input$chatter_quali_season, input$chatter_quali_round), {
+    req(input$chatter_quali_season, input$chatter_quali_round)
+    updateCheckboxGroupInput(
+      session,
+      "chatter_quali_models",
+      selected = default_qualifying_models_for_race(input$chatter_quali_season, input$chatter_quali_round)
+    )
+  }, ignoreInit = FALSE)
+
   build_chatter_qualifying_overlay <- function(selected_models) {
     if (length(selected_models) == 0 || nrow(qualifying_predictions) == 0 || nrow(chatter_qualifying_overlay) == 0) {
       return(empty_chatter_qualifying_overlay)
@@ -7402,7 +7453,9 @@ server <- function(input, output, session) {
         `Quali nudge` = format_num(chatter_quali_nudge, 2),
         `Adjusted quali` = format_num(adjusted_predicted_quali_position, 2),
         `Current pole ML` = pole_current_american_odds_label,
+        `Market pole %` = format_pct(pole_current_no_vig_probability, 0.1),
         `Implied pole ML` = qualifying_implied_pole_american_odds_label,
+        `Base model edge` = format_pct(qualifying_implied_pole_probability - pole_current_no_vig_probability, 0.1),
         `Chatter pole ML` = expected_pole_american_odds_label,
         `Exp ML Delta` = expected_pole_moneyline_delta_label,
         `Actual ML Delta` = actual_pole_moneyline_delta_label,
@@ -7428,7 +7481,9 @@ server <- function(input, output, session) {
         `Quali nudge` = format_num(chatter_quali_nudge, 2),
         `Adjusted quali` = format_num(adjusted_predicted_quali_position, 2),
         `Current pole ML` = pole_current_american_odds_label,
+        `Market pole %` = format_pct(pole_current_no_vig_probability, 0.1),
         `Implied pole ML` = qualifying_implied_pole_american_odds_label,
+        `Base model edge` = format_pct(qualifying_implied_pole_probability - pole_current_no_vig_probability, 0.1),
         `Chatter pole ML` = expected_pole_american_odds_label,
         `Exp ML Delta` = expected_pole_moneyline_delta_label,
         `Actual ML Delta` = actual_pole_moneyline_delta_label,
