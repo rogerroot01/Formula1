@@ -7,3 +7,7 @@ xgb_quali_high_speed_specialist,current_quali_position,3,0.04,1,0.85,0.85,100,rm
 xgb_quali_high_speed_specialist,current_best_quali_delta_sec,4,0.04,1,0.95,0.85,100,rmse,1.826830199883316,2026-07-12T01:22:51Z
 xgb_quali_technical_specialist,current_quali_position,4,0.04,5,0.95,0.95,100,rmse,3.849015835348895,2026-07-12T01:24:01Z
 xgb_quali_technical_specialist,current_best_quali_delta_sec,3,0.04,5,0.85,0.85,160,rmse,0.4617270332869992,2026-07-12T01:25:09Z
+xgb_quali_street_specialist,current_quali_position,3,0.08,1,0.85,0.85,100,rmse,4.076116103564177,2026-07-23T18:03:18Z
+xgb_quali_street_specialist,current_best_quali_delta_sec,2,0.04,1,0.85,0.85,100,rmse,1.9669363434460256,2026-07-23T18:03:37Z
+xgb_quali_permanent_specialist,current_quali_position,3,0.04,1,0.95,0.95,100,rmse,3.740577631488584,2026-07-23T18:04:02Z
+xgb_quali_permanent_specialist,current_best_quali_delta_sec,3,0.08,1,0.85,0.85,100,rmse,0.4678336087514188,2026-07-23T18:04:27Z
