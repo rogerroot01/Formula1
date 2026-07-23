@@ -3465,7 +3465,7 @@
       "checksum": "3d88e0e10058100c55454a80683a252b"
     },
     "app.R": {
-      "checksum": "a855a7ec6701ef128c6db82ae445feba"
+      "checksum": "f1b1e2c268182485b07c0fda9d91c37f"
     },
     "data/f1_current_sprint_facts_2018_2026.csv": {
       "checksum": "86d7b537a17250900e485309d4028dbd"
@@ -3501,28 +3501,28 @@
       "checksum": "c4b56b8e40a67a77afcb2986d28fb75b"
     },
     "data/f1_stage17_xgb_winner_without_app_predictions_2018_2026.csv": {
-      "checksum": "fc84bff5ee4a3af9e30b6279ceb18453"
+      "checksum": "8412d22b1dac463e93a11bc96a26cf76"
     },
     "data/f1_stage18_chatter_overlay_coefficients_2018_2026.csv": {
-      "checksum": "476ce1b76aff1f04b63b6996e34f63c9"
+      "checksum": "fbea030e235114e66ea61f0ed7181a85"
     },
     "data/f1_stage18_chatter_team_features_2018_2026.csv": {
-      "checksum": "7e8226097d01073af5739ed1c5602252"
+      "checksum": "ddb8257e5038537a77fb774f5c1b62a2"
     },
     "data/f1_stage18_qualifying_chatter_overlay_2018_2026.csv": {
-      "checksum": "5024cc73ef424bdaf7009599a898a87f"
+      "checksum": "997c8986ba323540d6f81e561cc6c9f6"
     },
     "data/f1_stage18_xgb_finish_chatter_overlay_2018_2026.csv": {
-      "checksum": "779e432e3b2ba60896babb2ad33c97c3"
+      "checksum": "c6ce9af0cc3311f615229bede3b67538"
     },
     "data/f1_stage18_xgb_points_chatter_overlay_2018_2026.csv": {
-      "checksum": "33a75897b38e0323688c6acfb0e69bce"
+      "checksum": "b8930a7828098c97db0620fa3c525550"
     },
     "data/f1_stage18_xgb_probability_chatter_overlay_2018_2026.csv": {
-      "checksum": "22756ee6b97a4d2d7fde798c4dfb1659"
+      "checksum": "38e51cc91c6ef5e87b5fa8ba2f4a3786"
     },
     "data/f1_stage18_xgb_winner_without_chatter_overlay_2018_2026.csv": {
-      "checksum": "c3471bd734c7458b6abacb5abc5c3b00"
+      "checksum": "541aafffdd1f3883e0abcaef74ac89c3"
     },
     "data/f1_stage19_fastest_lap_app_predictions_2018_2026.csv": {
       "checksum": "869f1ebce98ac1fdb6cab69cbd805632"
@@ -3891,7 +3891,7 @@
       "checksum": "ac0cbd9ccbcf4ad115a82803930f5988"
     },
     "data/keep these files/f1_prerace_chatter_team_race_signals_2018_2026.csv": {
-      "checksum": "2e7c518e73239b29f80c81ad8f7f1428"
+      "checksum": "ea979661b28a63e40ce059fca1b8194c"
     },
     "data/keep these files/f1_prerace_grid_quali_overrides_2018_2026.csv": {
       "checksum": "2c84c14be467dad21341c99317a20d2e"
@@ -3909,13 +3909,13 @@
       "checksum": "6f70d2c3e69f80e639218a20f3e1215d"
     },
     "tools/run_local_app.R": {
-      "checksum": "1f70ad72735da657072e73f119a50c73"
+      "checksum": "be6db4e24611ee1a4b2df9b2c564168c"
     },
     "www/apple-touch-icon.png": {
       "checksum": "48b1e84d934527c2c964850e0cd44081"
     },
     "www/dark-theme.css": {
-      "checksum": "3f83728a3f224b16b7d667e73b95d735"
+      "checksum": "0557057e125f5d01e0a037307866bc80"
     },
     "www/f1-icon-1024.png": {
       "checksum": "8702d8505efecd09777a3ba00c630ba7"

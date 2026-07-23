@@ -2296,6 +2296,12 @@ winner_without_model_lookup <- winner_without_predictions %>%
     model == "xgb_winner_without_probability" ~ 1L,
     model == "xgb_winner_without_high_speed_specialist" ~ 2L,
     model == "xgb_winner_without_non_high_speed_specialist" ~ 3L,
+    model == "xgb_winner_without_with_constructor" ~ 4L,
+    model == "xgb_winner_without_no_constructor" ~ 5L,
+    model == "xgb_winner_without_street_specialist" ~ 6L,
+    model == "xgb_winner_without_permanent_specialist" ~ 7L,
+    model == "xgb_winner_without_profile_high_speed_specialist" ~ 8L,
+    model == "xgb_winner_without_tactical_specialist" ~ 9L,
     TRUE ~ 99L
   )) %>%
   arrange(model_order, model_label) %>%
@@ -2777,8 +2783,8 @@ theme_f1_dark <- function(base_size = 12) {
 
 ui <- fluidPage(
   tags$head(
-    tags$link(rel = "stylesheet", type = "text/css", href = "styles.css?v=f1-dark-3"),
-    tags$link(rel = "stylesheet", type = "text/css", href = "dark-theme.css?v=f1-dark-3"),
+    tags$link(rel = "stylesheet", type = "text/css", href = "styles.css?v=f1-dark-4"),
+    tags$link(rel = "stylesheet", type = "text/css", href = "dark-theme.css?v=f1-dark-4"),
     tags$link(rel = "icon", type = "image/x-icon", href = "favicon.ico"),
     tags$link(rel = "icon", type = "image/png", href = "f1-logo.png"),
     tags$link(rel = "apple-touch-icon", href = "apple-touch-icon.png"),
@@ -2800,7 +2806,7 @@ ui <- fluidPage(
           var tabLinks = document.querySelectorAll('#main_tabs a[data-toggle=tab]');
           var fantasyLinks = Array.prototype.slice.call(tabLinks).filter(function (link) {
             var label = link.textContent.trim();
-            return label === 'Fantasy Lineup' || label === 'Fantasy Lineup 2' || label === 'Fantasy Lineup 3';
+            return label === 'Balanced Portfolio' || label === 'Constructor + Value Captain' || label === 'Final Lineup';
           });
           return fantasyLinks.some(function (link) {
             return Boolean(link.parentElement && link.parentElement.classList.contains('active'));
@@ -3870,12 +3876,12 @@ ui <- fluidPage(
         navbarMenu(
           "Fantasy",
           tabPanel(
-          "Fantasy Lineup",
+          "Balanced Portfolio",
           div(
             class = "tree-tab-layout",
             div(
               class = "tree-controls",
-              h1("Fantasy Predictions"),
+              h1("Balanced Fantasy Portfolio"),
               selectInput(
                 "fantasy_season",
                 "Season",
@@ -3929,12 +3935,12 @@ ui <- fluidPage(
           )
         ),
           tabPanel(
-          "Fantasy Lineup 2",
+          "Constructor + Value Captain",
           div(
             class = "tree-tab-layout",
             div(
               class = "tree-controls",
-              h1("Fantasy Lineup 2"),
+              h1("Constructor + Value Captain"),
               selectInput(
                 "fantasy2_season",
                 "Season",
@@ -3989,12 +3995,12 @@ ui <- fluidPage(
           )
         ),
           tabPanel(
-          "Fantasy Lineup 3",
+          "Final Lineup",
           div(
             class = "tree-tab-layout",
             div(
               class = "tree-controls",
-              h1("Fantasy Lineup 3"),
+              h1("Final Lineup"),
               selectInput(
                 "fantasy3_season",
                 "Season",
@@ -10853,7 +10859,7 @@ server <- function(input, output, session) {
   # Explicitly start the portfolio on tab activation. This does not duplicate work:
   # Shiny's reactive cache supplies the same result to all of the visible tables.
   observeEvent(list(input$main_tabs, input$fantasy2_round), {
-    req(identical(input$main_tabs, "Fantasy Lineup 2"), input$fantasy2_round)
+    req(identical(input$main_tabs, "Constructor + Value Captain"), input$fantasy2_round)
     fantasy2_portfolio_lineups()
     fantasy2_combined_portfolio()
   }, ignoreInit = TRUE, priority = 100)
@@ -11645,7 +11651,7 @@ server <- function(input, output, session) {
         BottleneckReliefNames = paste(bottleneck_relief, collapse = "|"),
         ConcentrationGuardNames = paste(concentration_guard, collapse = "|")
       )
-    validate(need(n_distinct(candidates$CandidateID) > 0L, "No Fantasy Lineup 3 candidates fit the current salary cap."))
+    validate(need(n_distinct(candidates$CandidateID) > 0L, "No Final Lineup candidates fit the current salary cap."))
 
     driver_lookup <- x$drivers %>% transmute(
       AssetType = "Driver", Name = driver_name,
@@ -11887,7 +11893,20 @@ server <- function(input, output, session) {
         }
       }
     }
-    validate(need(length(best_selected) > 0L, "No distinct Fantasy Lineup 3 portfolio fits the current settings."))
+    # A fully feasible exposure solution is not guaranteed after a material
+    # projection refresh.  Keep the requested portfolio size by using the
+    # highest-scoring remaining distinct candidates only when every constrained
+    # selector above has stopped short.  The ordinary path remains unchanged.
+    if (length(best_selected) < portfolio_size) {
+      remaining_candidates <- setdiff(seq_len(nrow(meta)), best_selected)
+      remaining_candidates <- remaining_candidates[
+        order(meta$Score[remaining_candidates], meta$Ceiling[remaining_candidates], decreasing = TRUE)
+      ]
+      slots_needed <- portfolio_size - length(best_selected)
+      best_selected <- c(best_selected, head(remaining_candidates, slots_needed))
+      best_tier <- length(rule_tiers) + 2L
+    }
+    validate(need(length(best_selected) > 0L, "No distinct Final Lineup portfolio fits the current settings."))
     selected_meta <- meta[best_selected, ]
     ordered_selected <- integer()
     remaining_selected <- seq_len(nrow(selected_meta))
@@ -11941,7 +11960,7 @@ server <- function(input, output, session) {
   })
 
   observeEvent(list(input$main_tabs, input$fantasy3_round), {
-    req(identical(input$main_tabs, "Fantasy Lineup 3"), input$fantasy3_round)
+    req(identical(input$main_tabs, "Final Lineup"), input$fantasy3_round)
     fantasy3_portfolio()
   }, ignoreInit = TRUE, priority = 100)
 
